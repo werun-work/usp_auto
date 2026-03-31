@@ -1,0 +1,10 @@
+streamlit
+requests
+beautifulsoup4
+selenium
+webdriver-manager
+google-genai
+wordcloud
+matplotlib
+gspread
+oauth2client
