@@ -18,6 +18,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 import os
 import urllib.request
 import json
+import re
+from PIL import Image, ImageDraw, ImageFont # 🔥 이미지 합성을 위한 필수 도구 추가
 
 # ==========================================
 # [초기 세팅 영역] 
@@ -35,9 +37,9 @@ GOOGLE_SHEET_NAME = "USP_추출기"
 
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
-for key in ['analyzed', 'final_report', 'wc_img', 'filename_base', 'main_url', 'worker_name']:
+for key in ['analyzed', 'final_report', 'wc_img', 'ad_img', 'filename_base', 'main_url', 'worker_name']:
     if key not in st.session_state:
-        st.session_state[key] = None if key == 'wc_img' else ""
+        st.session_state[key] = None if 'img' in key else ""
 
 def check_password():
     if st.session_state.authenticated:
@@ -81,11 +83,12 @@ def save_to_google_sheet(data_list, worker_name):
             st.error(f"🚨 시트 기록 실패: {e}")
 
 # ==========================================
-# [데이터 수집 엔진] 🔥 강력한 타임아웃 방어 로직 추가
+# [데이터 수집 엔진] 🔥 이미지 URL 수집 로직 추가
 # ==========================================
 def get_data_bulldozer(target_url, max_pages=30):
     brand_text = ""
     review_list = []
+    main_img_url = "" # 상품 대표 이미지 주소
     
     options = Options()
     options.binary_location = "/usr/bin/chromium" 
@@ -97,24 +100,30 @@ def get_data_bulldozer(target_url, max_pages=30):
     options.page_load_strategy = 'eager' 
 
     try:
+        # 🔥 상세페이지의 메인 이미지(og:image)를 몰래 훔쳐옵니다 (가장 빠르고 정확한 requests 사용)
+        try:
+            res = requests.get(target_url, headers={'User-Agent': 'Mozilla/5.0'})
+            soup = BeautifulSoup(res.text, 'html.parser')
+            og_img = soup.find('meta', property='og:image')
+            if og_img and og_img.get('content'):
+                main_img_url = og_img['content']
+                if main_img_url.startswith('//'):
+                    main_img_url = 'https:' + main_img_url
+        except Exception as e:
+            pass
+
         service = Service("/usr/bin/chromedriver") 
         driver = webdriver.Chrome(service=service, options=options)
-        
-        # 🔥 15초 안에 안 열리면 강제로 끊어버립니다.
         driver.set_page_load_timeout(15)
         
-        status_container.info(f"🚀 (1/3) 상세페이지 설명 수집 중...")
+        status_container.info(f"🚀 (1/3) 상세페이지 텍스트 및 대표 이미지 수집 중...")
         try:
             driver.get(target_url)
             time.sleep(2)
         except Exception as e:
-            # 15초가 지나 타임아웃 에러가 나더라도, 무시하고 진행합니다! (서버 기절 방지)
-            try:
-                driver.execute_script("window.stop();") # 브라우저 로딩 강제 종료
+            try: driver.execute_script("window.stop();") 
             except: pass
-            status_container.warning("⚠️ 상세페이지 로딩이 길어 강제 중단 후 텍스트만 추출합니다.")
-
-        # 어떻게든 화면에 뜬 글자만 긁어옵니다.
+            
         try:
             brand_text = driver.find_element(By.TAG_NAME, 'body').text.strip()[:5000]
         except:
@@ -133,34 +142,30 @@ def get_data_bulldozer(target_url, max_pages=30):
                         content = driver.find_element(By.TAG_NAME, 'body').text.strip()
                         if len(content) < 50: break
                         review_list.append(content)
-                    except Exception as review_e:
-                        # 중간에 한 페이지가 멈춰도 전체가 망가지지 않게 그냥 넘어갑니다(Pass).
-                        pass
+                    except: pass
         else:
             review_list.append(brand_text[1000:4000])
             
     except Exception as e:
         status_container.error(f"⚠️ 브라우저 시스템 오류: {e}")
     finally:
-        try:
-            driver.quit()
+        try: driver.quit()
         except: pass
         
-    return brand_text, "\n".join(review_list)[:30000]
+    return brand_text, "\n".join(review_list)[:30000], main_img_url
 
 # ==========================================
-# [AI 요약]
+# [AI 요약 & 이미지 합성 로직]
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text):
     status_container.info("🧠 (3/3) 제미나이 AI가 '생활 밀착형 USP 고도화' 전략으로 분석 중입니다...")
     prompt = f"""
     # Role: 시니어 커머스 전략가 (생활 밀착형 라이프스타일 큐레이터)
-    # Task: 상세페이지와 리뷰를 분석하여, 중복되지 않는 5가지 관점의 '생활 밀착형 USP'와 '명사/동사 중심' 후킹 카피 추출 및 광고 소재 기획
-
-    # 분석 가이드라인 (USP 고도화 Logic):
-    1. 소구점 다각화 (Zero Redundancy): '편안함' 하나에만 매몰되지 않는다. [관리(세탁/다림질), 핏(보정/실루엣), 촉감(피부저자극), 내구성(변형무), 상황(출근/육아/운동)]의 5가지 축으로 USP를 분산 추출한다.
-    2. 생활 밀착 (Real Life): "다림질 생략", "세탁기 직행", "건조기 생존" 등 사용자가 제품을 '관리하고 유지하는 과정'에서의 이득을 반드시 포함한다.
-    3. 언어의 직관성 (Short & Punchy): 모든 카피는 20자 이내, '명사' 혹은 '동사'로 종결하여 이미지로 즉각 각인시킨다.
+    
+    # 분석 가이드라인 (매우 중요):
+    1. **절대 축약 금지**: 리뷰 분석(2번)과 기획안(4,5번) 파트는 분량을 줄이지 말고 구체적이고 디테일하게 작성할 것. 
+    2. **카피만 짧게**: 오직 [3번 후킹 카피] 파트만 각 항목을 20자 이내로 명사/동사형으로 짧게 끊어 칠 것.
+    3. **최적의 1줄 카피 추출**: 3번 카피 중 가장 완벽한 1개의 카피를 골라 맨 마지막에 [BEST_COPY]카피내용[/BEST_COPY] 태그로 감싸서 출력할 것. (이 태그는 이미지 합성에 사용됨)
 
     ---
     # Input Data:
@@ -172,8 +177,6 @@ def analyze_deep_usp_summarized(brand_text, review_text):
     ---
 
     # Output Format:
-    (주의: 각 항목의 설명 문구나 가이드라인은 제외하고 최종 결과 텍스트만 깔끔하게 출력하세요. 수집된 리뷰가 없을 경우 '수집된 리뷰 없음'으로 명시하고 상세페이지 기준으로 유추하여 기획하세요.)
-
     ### 🏢 1. 5대 다각도 핵심 USP (경험 중심)
     1. **[관리/유지]**: 
     2. **[시각적 핏]**: 
@@ -181,18 +184,21 @@ def analyze_deep_usp_summarized(brand_text, review_text):
     4. **[내구성]**: 
     5. **[상황 확산]**: 
 
-    ### 🗣️ 2. 고객의 '진짜 생활' 리뷰 (Pain-Point 중심)
+    ### 🗣️ 2. 고객의 '진짜 생활' 리뷰 (Pain-Point 중심, 풍부하게 작성)
     * **[생활 밀착 키워드 Top 5]**: 
-    * **[고객의 한 마디]**: 
+    * **[고객의 한 마디]**: (리뷰 중 가장 임팩트 있는 '생활 밀착형' 문장 발췌)
+    * **[해결된 불편함]**: (고객들이 기존에 겪던 어떤 결핍이 이 제품으로 해결되었는지 2~3줄로 상세 서술)
 
-    ### 🎯 3. 초압축 다각도 후킹 카피 (명사/동사 중심)
-    1. **[관리 혁명형]** 2. **[시간 단축형]** 3. **[시각 보정형]** 4. **[피부 공감형]** 5. **[가성비 증명형]** 6. **[상황 저격형]** 7. **[사회적 증거형]** 8. **[손실 방지형]** ### 💡 4. 소재 제작 기획안 (크리에이티브 한 끗)
-    * **[메인 레퍼런스 이미지 기획]**: 위 카피 중 성과가 가장 좋을 것으로 예상되는 '생활 밀착형 이미지' 구도 1가지 제안 (어떤 모델이 어떤 상황에서 무엇을 하고 있는지 구체적으로 시각화)
+    ### 🎯 3. 초압축 다각도 후킹 카피 (각 20자 이내, 명사/동사 중심)
+    1. **[관리 혁명형]** 2. **[시간 단축형]** 3. **[시각 보정형]** 4. **[피부 공감형]** 5. **[가성비 증명형]** 6. **[상황 저격형]** 7. **[사회적 증거형]** 8. **[손실 방지형]** ### 💡 4. 소재 제작 기획안 (크리에이티브 한 끗, 구체적으로 묘사)
+    * **[메인 레퍼런스 이미지 기획]**: 위 카피 중 성과가 가장 좋을 것으로 예상되는 '생활 밀착형 이미지' 구도 상세 제안
     
-    ### 🎬 5. 숏폼 영상 기획안 (6초~15초)
-    * **[초반 Hook (0~3초)]**: 시선을 끄는 문제 제기 또는 극적인 상황
-    * **[Body 전개 (3~10초)]**: 제품으로 해결되는 극적인 대비(Before/After) 또는 생활 밀착형 솔루션 시연
-    * **[Action 마무리 (10~15초)]**: 구매 유도(CTA) 및 직관적 카피 마무리지기
+    ### 🎬 5. 숏폼 영상 기획안 (6초~15초 콘티)
+    * **[초반 Hook (0~3초)]**: (구체적 상황 묘사)
+    * **[Body 전개 (3~10초)]**: (시각적 대비 및 증명)
+    * **[Action 마무리 (10~15초)]**: (구매 유도)
+    
+    [BEST_COPY]여기에 3번 카피 중 최고점 카피 1개를 20자 이내로 적어주세요[/BEST_COPY]
     """
     try:
         client = genai.Client(api_key=MY_GEMINI_API_KEY)
@@ -200,6 +206,49 @@ def analyze_deep_usp_summarized(brand_text, review_text):
         return response.text
     except Exception as e:
         return f"AI 분석 실패: {e}"
+
+def create_ad_image(img_url, best_copy):
+    if not img_url or not best_copy: 
+        return None
+    try:
+        # 1. 실제 상품 이미지 다운로드
+        req = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            img_data = response.read()
+        img = Image.open(io.BytesIO(img_data)).convert("RGB")
+
+        # 2. 광고용 사이즈(1080px)로 최적화 리사이즈
+        base_width = 1080
+        w_percent = (base_width / float(img.size[0]))
+        h_size = int((float(img.size[1]) * float(w_percent)))
+        img = img.resize((base_width, h_size), Image.Resampling.LANCZOS)
+
+        # 3. 텍스트가 잘 보이도록 하단에 어두운 그라데이션(박스) 처리
+        draw = ImageDraw.Draw(img, 'RGBA')
+        box_height = 250
+        draw.rectangle(((0, h_size - box_height), (base_width, h_size)), fill=(0, 0, 0, 180))
+
+        # 4. 한글 폰트(나눔고딕) 로드 및 텍스트 합성
+        font_path = "NanumGothicBold.ttf"
+        if not os.path.exists(font_path):
+            urllib.request.urlretrieve("https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Bold.ttf", font_path)
+        
+        font = ImageFont.truetype(font_path, 55)
+        
+        # 텍스트 중앙 정렬 렌더링
+        text_bbox = draw.textbbox((0, 0), best_copy, font=font)
+        text_w = text_bbox[2] - text_bbox[0]
+        text_x = (base_width - text_w) / 2
+        text_y = h_size - (box_height / 2) - 30
+        
+        draw.text((text_x, text_y), best_copy, font=font, fill=(255, 255, 255, 255))
+        draw.text((text_x, text_y - 60), "🔥 BEST COPY", font=ImageFont.truetype(font_path, 30), fill=(255, 200, 0, 255))
+
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format="PNG")
+        return img_buffer.getvalue()
+    except Exception as e:
+        return None
 
 def create_wordcloud_summary(review_text):
     try:
@@ -211,22 +260,15 @@ def create_wordcloud_summary(review_text):
         if not os.path.exists(font_path):
             urllib.request.urlretrieve("https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf", font_path)
         
-        wordcloud = WordCloud(
-            font_path=font_path, width=800, height=800, 
-            background_color='white', colormap='magma'
-        ).generate(keywords)
-        
+        wordcloud = WordCloud(font_path=font_path, width=800, height=800, background_color='white', colormap='magma').generate(keywords)
         img_buffer = io.BytesIO()
         plt.figure(figsize=(8, 8))
         plt.imshow(wordcloud, interpolation='bilinear')
         plt.axis('off')
         plt.savefig(img_buffer, format='png', bbox_inches='tight')
         plt.close()
-        
         return img_buffer.getvalue()
-    except Exception as e:
-        status_container.warning(f"⚠️ 워드클라우드 생성 실패: {e}")
-        return None
+    except: return None
 
 # ==========================================
 # [실제 화면 렌더링] 
@@ -262,13 +304,23 @@ if check_password():
                 st.warning("⚠️ 이름과 URL을 모두 입력해주세요!")
             else:
                 with status_container:
-                    brand_txt, review_txt = get_data_bulldozer(main_url_input, max_pages_input)
-                    report = analyze_deep_usp_summarized(brand_txt, review_txt)
+                    brand_txt, review_txt, main_img_url = get_data_bulldozer(main_url_input, max_pages_input)
+                    raw_report = analyze_deep_usp_summarized(brand_txt, review_txt)
                     
-                    if len(review_txt) < 50:
-                        img = None
-                    else:
-                        img = create_wordcloud_summary(review_txt)
+                    # 🔥 [BEST_COPY] 태그를 찾아서 텍스트 분리 및 추출
+                    best_copy_match = re.search(r'\[BEST_COPY\](.*?)\[/BEST_COPY\]', raw_report, re.DOTALL)
+                    best_copy_text = best_copy_match.group(1).strip() if best_copy_match else "상품의 매력을 돋보이게 하는 한 줄"
+                    clean_report = re.sub(r'\[BEST_COPY\].*?\[/BEST_COPY\]', '', raw_report, flags=re.DOTALL).strip()
+                    
+                    # 🔥 실제 상품 이미지와 카피 합성 (2번 방식 적용!)
+                    ad_img = None
+                    if main_img_url:
+                        status_container.info("🎨 실제 상품 이미지 기반 광고 시안(썸네일) 합성 중...")
+                        ad_img = create_ad_image(main_img_url, best_copy_text)
+
+                    wc_img = None
+                    if len(review_txt) >= 50:
+                        wc_img = create_wordcloud_summary(review_txt)
                     
                     now = datetime.datetime.now()
                     weekdays = ['월', '화', '수', '목', '금', '토', '일']
@@ -279,15 +331,16 @@ if check_password():
                     qs = parse_qs(parsed.query)
                     p_code = qs.get('branduid', qs.get('product_no', ['UNKNOWN']))[0]
                     
-                    save_to_google_sheet([formatted_date, p_code, main_url_input, report], worker_input)
+                    save_to_google_sheet([formatted_date, p_code, main_url_input, clean_report], worker_input)
                     
-                    st.session_state.final_report = report
-                    st.session_state.wc_img = img
+                    st.session_state.final_report = clean_report
+                    st.session_state.wc_img = wc_img
+                    st.session_state.ad_img = ad_img
                     st.session_state.filename_base = f"USP_{p_code}_{now_str}"
                     st.session_state.main_url = main_url_input
                     st.session_state.worker_name = worker_input
                     st.session_state.analyzed = True
-                    st.toast("✅ 분석 완료!", icon="🎉")
+                    st.toast("✅ 분석 및 시안 제작 완료!", icon="🎉")
 
         if st.session_state.analyzed:
             st.markdown("---")
@@ -296,31 +349,30 @@ if check_password():
                 st.markdown(st.session_state.final_report)
                 st.text_area("📋 결과 복사하기", st.session_state.final_report, height=400)
 
-            wordcloud_expander = st.expander("☁️ 2. 리뷰 키워드 워드클라우드", expanded=True)
+            # 🔥 합성된 실제 광고 시안 렌더링
+            ad_expander = st.expander("🖼️ 2. 추천 광고 소재 시안 (실제 상품 이미지 합성)", expanded=True)
+            with ad_expander:
+                if st.session_state.ad_img:
+                    st.image(st.session_state.ad_img, caption="AI 추천 카피 자동 합성본")
+                    st.download_button("💾 광고 시안(.png) 다운로드", data=st.session_state.ad_img, file_name=f"AD_{st.session_state.filename_base}.png", mime="image/png")
+                else:
+                    st.warning("상세페이지에서 적합한 메인 이미지를 추출하지 못해 시안 합성이 생략되었습니다.")
+
+            wordcloud_expander = st.expander("☁️ 3. 리뷰 키워드 워드클라우드", expanded=True)
             with wordcloud_expander:
                 if st.session_state.wc_img:
                     st.image(st.session_state.wc_img, caption="리뷰 핵심 키워드")
+                    st.download_button("💾 워드클라우드(.png) 다운로드", data=st.session_state.wc_img, file_name=f"WC_{st.session_state.filename_base}.png", mime="image/png")
                 else:
                     st.markdown("수집된 리뷰가 없어 워드클라우드를 제공하지 않습니다.")
             
-            col4, col5 = st.columns([1, 1])
-            with col4:
-                st.download_button(
-                    label="💾 기획안(.txt) 다운로드",
-                    data=f"분석 대상: {st.session_state.main_url}\n작업자: {st.session_state.worker_name}\n==========================\n\n{st.session_state.final_report}",
-                    file_name=f"{st.session_state.filename_base}.txt",
-                    mime="text/plain",
-                    use_container_width=True
-                )
-            with col5:
-                if st.session_state.wc_img:
-                    st.download_button(
-                        label="💾 워드클라우드(.png) 다운로드",
-                        data=st.session_state.wc_img,
-                        file_name=f"{st.session_state.filename_base}.png",
-                        mime="image/png",
-                        use_container_width=True
-                    )
+            st.download_button(
+                label="💾 전체 기획안(.txt) 일괄 다운로드",
+                data=f"분석 대상: {st.session_state.main_url}\n작업자: {st.session_state.worker_name}\n==========================\n\n{st.session_state.final_report}",
+                file_name=f"{st.session_state.filename_base}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
 
     with tab2:
         st.header("📋 과거 분석 히스토리")
@@ -331,4 +383,4 @@ if check_password():
             if selected_sheet:
                 st.dataframe(spreadsheet.worksheet(selected_sheet).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V10.1</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V10.2 (Ad Composer)</center>", unsafe_allow_html=True)
