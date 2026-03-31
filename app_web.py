@@ -17,6 +17,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
 import urllib.request
+import json # 🔥 JSON 통째로 읽기를 위한 마법 도구 추가
 
 # ==========================================
 # [초기 세팅 영역] 
@@ -30,7 +31,6 @@ except:
     APP_PASSWORD = "123"
     MY_GEMINI_API_KEY = "임시"
 
-# 🔥 캡처해주신 화면에 맞춰 구글 시트 파일 이름을 정확히 수정했습니다!
 GOOGLE_SHEET_NAME = "USP_추출기" 
 
 if 'authenticated' not in st.session_state:
@@ -56,17 +56,15 @@ def check_password():
     return False
 
 # ==========================================
-# [구글 시트 연결] 
+# [구글 시트 연결] 🔥 가장 완벽하고 확실한 JSON 로드 방식
 # ==========================================
 def connect_google_sheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds_dict = dict(st.secrets["gcp_service_account"])
         
-        # 암호(PEM) 포맷이 깨지는 것을 방지하는 강력한 보호 코드
-        private_key = creds_dict.get("private_key", "")
-        private_key = private_key.replace("\\n", "\n").replace('"', '').replace("'", "").strip()
-        creds_dict["private_key"] = private_key
+        # 스트림릿 금고에서 'GOOGLE_CREDENTIALS'라는 통짜 텍스트를 가져와서 JSON으로 읽어들입니다.
+        creds_json_str = st.secrets["GOOGLE_CREDENTIALS"]
+        creds_dict = json.loads(creds_json_str)
             
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
@@ -81,10 +79,10 @@ def save_to_google_sheet(data_list):
         try:
             sheet.append_row(data_list)
         except Exception as e:
-            st.error(f"🚨 시트 기록 실패 (이메일 공유 권한을 확인하세요): {e}")
+            st.error(f"🚨 시트 기록 실패: {e}")
 
 # ==========================================
-# [데이터 수집] 🔥 봇 차단 우회(크롬 드라이버 전면 배치)
+# [데이터 수집] 
 # ==========================================
 def get_data_bulldozer(target_url, product_code, max_pages=50):
     encoded_parent_url = urllib.parse.quote(target_url, safe='')
@@ -100,12 +98,10 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
     options.add_argument('--disable-gpu')
     options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
 
-    # 브라우저를 한 번만 켜서 상세페이지와 리뷰를 모두 수집합니다!
     try:
         service = Service("/usr/bin/chromedriver") 
         driver = webdriver.Chrome(service=service, options=options)
         
-        # 1. 상세페이지 수집 (우회)
         status_container.info(f"🚀 (1/3) 상세페이지 설명 수집 중...")
         try:
             driver.get(target_url)
@@ -114,7 +110,6 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
         except Exception as e:
             status_container.warning(f"⚠️ 상세페이지 텍스트 수집 실패: {e}")
 
-        # 2. 리뷰 수집
         status_container.info(f"🤖 (2/3) 클라우드 브라우저를 백그라운드에서 실행하여 리뷰 수집 중...")
         progress_bar = st.progress(0)
         for page in range(1, max_pages + 1):
@@ -224,8 +219,6 @@ if check_password():
     with tab1:
         with st.sidebar:
             st.header("설정")
-            
-            # 🔥 요청하신 안내 문구로 완벽하게 교체되었습니다!
             st.markdown("💡 **분석하고 싶은 제품의 전체 URL 주소 하나만 넣어주세요!**")
             st.markdown("💡 **URL 기재 시 예시와 같이 코드까지만 입력해주세요**<br><span style='font-size:13px;'>(예시: https://www.xexymix.com/shop/shopdetail.html?branduid=2069060)</span>", unsafe_allow_html=True)
             
@@ -308,4 +301,4 @@ if check_password():
             if data: st.table(data)
             else: st.info("아직 저장된 내역이 없습니다.")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V9.3</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V9.4</center>", unsafe_allow_html=True)
