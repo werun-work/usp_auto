@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 import io
 import datetime
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import os
 import urllib.request
 
@@ -55,26 +54,32 @@ def check_password():
     return False
 
 # ==========================================
-# [구글 시트 연결]
+# [구글 시트 연결] 🔥 강력한 에러 복구 기능 탑재
 # ==========================================
 def connect_google_sheet():
     try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds_dict = dict(st.secrets["gcp_service_account"])
         
-        if "\\n" in creds_dict.get("private_key", ""):
-            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-            
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
+        # 💡 어떤 형태로 복사하든 줄바꿈 기호를 완벽하게 복구합니다.
+        private_key = creds_dict.get("private_key", "")
+        private_key = private_key.replace("\\n", "\n") 
+        creds_dict["private_key"] = private_key
+        
+        # gspread 최신 내장 함수로 깔끔하게 연결 (oauth2client 불필요)
+        client = gspread.service_account_from_dict(creds_dict)
         return client.open(GOOGLE_SHEET_NAME).sheet1
+        
     except Exception as e:
         st.error(f"🚨 구글 시트 연결 실패: {e}")
         return None
 
 def save_to_google_sheet(data_list):
     sheet = connect_google_sheet()
-    if sheet: sheet.append_row(data_list)
+    if sheet: 
+        try:
+            sheet.append_row(data_list)
+        except Exception as e:
+            st.error(f"🚨 시트 기록 실패 (권한 문제일 수 있습니다): {e}")
 
 # ==========================================
 # [데이터 수집] 클라우드 전용 크롬 세팅
@@ -217,14 +222,11 @@ if check_password():
             st.header("설정")
             st.markdown("💡 **분석하고 싶은 제품의 전체 URL 주소 하나만 넣어주세요!**")
             
-            # 🔥 요처하신 부분 수정 완료 (빈칸 & 힌트 텍스트 제공)
             main_url_input = st.text_input(
                 "🔗 분석할 상품 URL", 
                 value="", 
                 placeholder="예: https://www.xexymix.com/shop/shopdetail.html?branduid=2069060"
             )
-            
-            # 🔥 요청하신 부분 수정 완료 (최소 10, 최대 50, 기본 30, 5단위씩 이동)
             max_pages_input = st.slider("📜 수집 페이지 수", min_value=10, max_value=50, value=30, step=5)
         
         col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
@@ -234,7 +236,7 @@ if check_password():
         status_container = st.container()
 
         if start_btn:
-            if not main_url_input: # 🔥 주소를 입력하지 않고 눌렀을 때 방어 로직 추가
+            if not main_url_input: 
                 st.warning("⚠️ 분석할 상품의 URL 주소를 먼저 입력해주세요!")
             else:
                 parsed_url = urlparse(main_url_input)
@@ -303,4 +305,4 @@ if check_password():
             if data: st.table(data)
             else: st.info("아직 저장된 내역이 없습니다.")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V9.1</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V9.2</center>", unsafe_allow_html=True)
