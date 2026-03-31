@@ -19,7 +19,7 @@ import os
 import urllib.request
 import json
 import re
-from PIL import Image, ImageDraw, ImageFont # 🔥 이미지 합성을 위한 필수 도구 추가
+from PIL import Image, ImageDraw, ImageFont
 
 # ==========================================
 # [초기 세팅 영역] 
@@ -37,7 +37,7 @@ GOOGLE_SHEET_NAME = "USP_추출기"
 
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
-for key in ['analyzed', 'final_report', 'wc_img', 'ad_img', 'filename_base', 'main_url', 'worker_name']:
+for key in ['analyzed', 'final_report', 'wc_img', 'ad_img', 'filename_base', 'main_url', 'worker_name', 'content_type']:
     if key not in st.session_state:
         st.session_state[key] = None if 'img' in key else ""
 
@@ -83,12 +83,12 @@ def save_to_google_sheet(data_list, worker_name):
             st.error(f"🚨 시트 기록 실패: {e}")
 
 # ==========================================
-# [데이터 수집 엔진] 🔥 이미지 URL 수집 로직 추가
+# [데이터 수집 엔진] 
 # ==========================================
 def get_data_bulldozer(target_url, max_pages=30):
     brand_text = ""
     review_list = []
-    main_img_url = "" # 상품 대표 이미지 주소
+    main_img_url = "" 
     
     options = Options()
     options.binary_location = "/usr/bin/chromium" 
@@ -100,7 +100,6 @@ def get_data_bulldozer(target_url, max_pages=30):
     options.page_load_strategy = 'eager' 
 
     try:
-        # 🔥 상세페이지의 메인 이미지(og:image)를 몰래 훔쳐옵니다 (가장 빠르고 정확한 requests 사용)
         try:
             res = requests.get(target_url, headers={'User-Agent': 'Mozilla/5.0'})
             soup = BeautifulSoup(res.text, 'html.parser')
@@ -155,17 +154,18 @@ def get_data_bulldozer(target_url, max_pages=30):
     return brand_text, "\n".join(review_list)[:30000], main_img_url
 
 # ==========================================
-# [AI 요약 & 이미지 합성 로직]
+# [AI 요약 & 동적 프롬프트 로직] 🔥 타겟 선택에 따라 프롬프트가 바뀝니다!
 # ==========================================
-def analyze_deep_usp_summarized(brand_text, review_text):
-    status_container.info("🧠 (3/3) 제미나이 AI가 '생활 밀착형 USP 고도화' 전략으로 분석 중입니다...")
-    prompt = f"""
+def analyze_deep_usp_summarized(brand_text, review_text, content_type):
+    status_container.info(f"🧠 (3/3) 제미나이 AI가 '{content_type}' 맞춤형 전략으로 분석 중입니다...")
+    
+    # 1. 공통 기본 프롬프트
+    base_prompt = f"""
     # Role: 시니어 커머스 전략가 (생활 밀착형 라이프스타일 큐레이터)
     
     # 분석 가이드라인 (매우 중요):
-    1. **절대 축약 금지**: 리뷰 분석(2번)과 기획안(4,5번) 파트는 분량을 줄이지 말고 구체적이고 디테일하게 작성할 것. 
+    1. **절대 축약 금지**: 리뷰 분석(2번)과 기획안 파트는 분량을 줄이지 말고 구체적이고 디테일하게 작성할 것. 
     2. **카피만 짧게**: 오직 [3번 후킹 카피] 파트만 각 항목을 20자 이내로 명사/동사형으로 짧게 끊어 칠 것.
-    3. **최적의 1줄 카피 추출**: 3번 카피 중 가장 완벽한 1개의 카피를 골라 맨 마지막에 [BEST_COPY]카피내용[/BEST_COPY] 태그로 감싸서 출력할 것. (이 태그는 이미지 합성에 사용됨)
 
     ---
     # Input Data:
@@ -177,6 +177,8 @@ def analyze_deep_usp_summarized(brand_text, review_text):
     ---
 
     # Output Format:
+    (주의: 각 항목의 설명 문구나 가이드라인은 제외하고 최종 결과 텍스트만 깔끔하게 출력하세요. 수집된 리뷰가 없을 경우 '수집된 리뷰 없음'으로 명시하고 상세페이지 기준으로 유추하여 기획하세요.)
+
     ### 🏢 1. 5대 다각도 핵심 USP (경험 중심)
     1. **[관리/유지]**: 
     2. **[시각적 핏]**: 
@@ -186,23 +188,38 @@ def analyze_deep_usp_summarized(brand_text, review_text):
 
     ### 🗣️ 2. 고객의 '진짜 생활' 리뷰 (Pain-Point 중심, 풍부하게 작성)
     * **[생활 밀착 키워드 Top 5]**: 
-    * **[고객의 한 마디]**: (리뷰 중 가장 임팩트 있는 '생활 밀착형' 문장 발췌)
-    * **[해결된 불편함]**: (고객들이 기존에 겪던 어떤 결핍이 이 제품으로 해결되었는지 2~3줄로 상세 서술)
+    * **[고객의 한 마디]**: 
+    * **[해결된 불편함]**: 
 
     ### 🎯 3. 초압축 다각도 후킹 카피 (각 20자 이내, 명사/동사 중심)
-    1. **[관리 혁명형]** 2. **[시간 단축형]** 3. **[시각 보정형]** 4. **[피부 공감형]** 5. **[가성비 증명형]** 6. **[상황 저격형]** 7. **[사회적 증거형]** 8. **[손실 방지형]** ### 💡 4. 소재 제작 기획안 (크리에이티브 한 끗, 구체적으로 묘사)
+    1. **[관리 혁명형]** 2. **[시간 단축형]** 3. **[시각 보정형]** 4. **[피부 공감형]** 5. **[가성비 증명형]** 6. **[상황 저격형]** 7. **[사회적 증거형]** 8. **[손실 방지형]** """
+
+    # 2. 이미지 기획안 전용 파트 (이미지가 포함된 경우에만 추가)
+    image_prompt = ""
+    if "이미지" in content_type:
+        image_prompt = """
+    ### 💡 4. 소재 제작 기획안 (크리에이티브 한 끗, 구체적으로 묘사)
     * **[메인 레퍼런스 이미지 기획]**: 위 카피 중 성과가 가장 좋을 것으로 예상되는 '생활 밀착형 이미지' 구도 상세 제안
     
+    [BEST_COPY]여기에 3번 카피 중 최고점 카피 1개를 20자 이내로 적어주세요[/BEST_COPY]
+    """
+
+    # 3. 영상 기획안 전용 파트 (영상이 포함된 경우에만 추가)
+    video_prompt = ""
+    if "영상" in content_type:
+        video_prompt = """
     ### 🎬 5. 숏폼 영상 기획안 (6초~15초 콘티)
     * **[초반 Hook (0~3초)]**: (구체적 상황 묘사)
     * **[Body 전개 (3~10초)]**: (시각적 대비 및 증명)
     * **[Action 마무리 (10~15초)]**: (구매 유도)
-    
-    [BEST_COPY]여기에 3번 카피 중 최고점 카피 1개를 20자 이내로 적어주세요[/BEST_COPY]
     """
+
+    # 4. 최종 프롬프트 합체
+    final_prompt = base_prompt + image_prompt + video_prompt
+
     try:
         client = genai.Client(api_key=MY_GEMINI_API_KEY)
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=final_prompt)
         return response.text
     except Exception as e:
         return f"AI 분석 실패: {e}"
@@ -211,31 +228,25 @@ def create_ad_image(img_url, best_copy):
     if not img_url or not best_copy: 
         return None
     try:
-        # 1. 실제 상품 이미지 다운로드
         req = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
             img_data = response.read()
         img = Image.open(io.BytesIO(img_data)).convert("RGB")
 
-        # 2. 광고용 사이즈(1080px)로 최적화 리사이즈
         base_width = 1080
         w_percent = (base_width / float(img.size[0]))
         h_size = int((float(img.size[1]) * float(w_percent)))
         img = img.resize((base_width, h_size), Image.Resampling.LANCZOS)
 
-        # 3. 텍스트가 잘 보이도록 하단에 어두운 그라데이션(박스) 처리
         draw = ImageDraw.Draw(img, 'RGBA')
         box_height = 250
         draw.rectangle(((0, h_size - box_height), (base_width, h_size)), fill=(0, 0, 0, 180))
 
-        # 4. 한글 폰트(나눔고딕) 로드 및 텍스트 합성
         font_path = "NanumGothicBold.ttf"
         if not os.path.exists(font_path):
             urllib.request.urlretrieve("https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Bold.ttf", font_path)
-        
         font = ImageFont.truetype(font_path, 55)
         
-        # 텍스트 중앙 정렬 렌더링
         text_bbox = draw.textbbox((0, 0), best_copy, font=font)
         text_w = text_bbox[2] - text_bbox[0]
         text_x = (base_width - text_w) / 2
@@ -247,8 +258,7 @@ def create_ad_image(img_url, best_copy):
         img_buffer = io.BytesIO()
         img.save(img_buffer, format="PNG")
         return img_buffer.getvalue()
-    except Exception as e:
-        return None
+    except: return None
 
 def create_wordcloud_summary(review_text):
     try:
@@ -290,6 +300,11 @@ if check_password():
             st.header("설정")
             worker_input = st.text_input("👤 작업자 이름", value="", placeholder="예: 김마케터")
             st.markdown("---")
+            
+            # 🔥 콘텐츠 타겟 선택 드롭다운 추가
+            content_type_input = st.selectbox("🎬 기획안 타겟 선택", ["이미지+영상", "이미지", "영상"], index=0, help="원하는 매체에 맞춰 최적화된 기획안을 도출합니다.")
+            st.markdown("---")
+            
             main_url_input = st.text_input("🔗 분석할 상품 URL", value="", placeholder="URL을 입력하세요")
             max_pages_input = st.slider("📜 수집 페이지 수", 10, 50, 30, 5)
         
@@ -305,18 +320,24 @@ if check_password():
             else:
                 with status_container:
                     brand_txt, review_txt, main_img_url = get_data_bulldozer(main_url_input, max_pages_input)
-                    raw_report = analyze_deep_usp_summarized(brand_txt, review_txt)
                     
-                    # 🔥 [BEST_COPY] 태그를 찾아서 텍스트 분리 및 추출
-                    best_copy_match = re.search(r'\[BEST_COPY\](.*?)\[/BEST_COPY\]', raw_report, re.DOTALL)
-                    best_copy_text = best_copy_match.group(1).strip() if best_copy_match else "상품의 매력을 돋보이게 하는 한 줄"
-                    clean_report = re.sub(r'\[BEST_COPY\].*?\[/BEST_COPY\]', '', raw_report, flags=re.DOTALL).strip()
+                    # 프롬프트에 드롭다운 선택값을 전달합니다.
+                    raw_report = analyze_deep_usp_summarized(brand_txt, review_txt, content_type_input)
                     
-                    # 🔥 실제 상품 이미지와 카피 합성 (2번 방식 적용!)
+                    best_copy_text = "상품의 매력을 돋보이게 하는 한 줄"
+                    clean_report = raw_report
                     ad_img = None
-                    if main_img_url:
-                        status_container.info("🎨 실제 상품 이미지 기반 광고 시안(썸네일) 합성 중...")
-                        ad_img = create_ad_image(main_img_url, best_copy_text)
+                    
+                    # '이미지'가 포함된 경우에만 합성 로직을 태웁니다.
+                    if "이미지" in content_type_input:
+                        best_copy_match = re.search(r'\[BEST_COPY\](.*?)\[/BEST_COPY\]', raw_report, re.DOTALL)
+                        if best_copy_match:
+                            best_copy_text = best_copy_match.group(1).strip()
+                            clean_report = re.sub(r'\[BEST_COPY\].*?\[/BEST_COPY\]', '', raw_report, flags=re.DOTALL).strip()
+                        
+                        if main_img_url:
+                            status_container.info("🎨 실제 상품 이미지 기반 광고 시안(썸네일) 합성 중...")
+                            ad_img = create_ad_image(main_img_url, best_copy_text)
 
                     wc_img = None
                     if len(review_txt) >= 50:
@@ -339,24 +360,26 @@ if check_password():
                     st.session_state.filename_base = f"USP_{p_code}_{now_str}"
                     st.session_state.main_url = main_url_input
                     st.session_state.worker_name = worker_input
+                    st.session_state.content_type = content_type_input # 화면 렌더링을 위해 기억
                     st.session_state.analyzed = True
-                    st.toast("✅ 분석 및 시안 제작 완료!", icon="🎉")
+                    st.toast("✅ 맞춤형 분석 및 기획 완료!", icon="🎉")
 
         if st.session_state.analyzed:
             st.markdown("---")
-            result_expander = st.expander("📝 1. AI 마케팅 기획안 & 카피 (클릭하여 열기)", expanded=True)
+            result_expander = st.expander("📝 1. AI 맞춤형 기획안 & 카피 (클릭하여 열기)", expanded=True)
             with result_expander:
                 st.markdown(st.session_state.final_report)
                 st.text_area("📋 결과 복사하기", st.session_state.final_report, height=400)
 
-            # 🔥 합성된 실제 광고 시안 렌더링
-            ad_expander = st.expander("🖼️ 2. 추천 광고 소재 시안 (실제 상품 이미지 합성)", expanded=True)
-            with ad_expander:
-                if st.session_state.ad_img:
-                    st.image(st.session_state.ad_img, caption="AI 추천 카피 자동 합성본")
-                    st.download_button("💾 광고 시안(.png) 다운로드", data=st.session_state.ad_img, file_name=f"AD_{st.session_state.filename_base}.png", mime="image/png")
-                else:
-                    st.warning("상세페이지에서 적합한 메인 이미지를 추출하지 못해 시안 합성이 생략되었습니다.")
+            # 🔥 '영상' 전용을 골랐을 때는 이미지 시안 창을 아예 숨깁니다.
+            if "이미지" in st.session_state.content_type:
+                ad_expander = st.expander("🖼️ 2. 추천 광고 소재 시안 (실제 상품 이미지 합성)", expanded=True)
+                with ad_expander:
+                    if st.session_state.ad_img:
+                        st.image(st.session_state.ad_img, caption="AI 추천 카피 자동 합성본")
+                        st.download_button("💾 광고 시안(.png) 다운로드", data=st.session_state.ad_img, file_name=f"AD_{st.session_state.filename_base}.png", mime="image/png")
+                    else:
+                        st.warning("상세페이지에서 적합한 메인 이미지를 추출하지 못해 시안 합성이 생략되었습니다.")
 
             wordcloud_expander = st.expander("☁️ 3. 리뷰 키워드 워드클라우드", expanded=True)
             with wordcloud_expander:
@@ -368,7 +391,7 @@ if check_password():
             
             st.download_button(
                 label="💾 전체 기획안(.txt) 일괄 다운로드",
-                data=f"분석 대상: {st.session_state.main_url}\n작업자: {st.session_state.worker_name}\n==========================\n\n{st.session_state.final_report}",
+                data=f"분석 대상: {st.session_state.main_url}\n기획 타겟: {st.session_state.content_type}\n작업자: {st.session_state.worker_name}\n==========================\n\n{st.session_state.final_report}",
                 file_name=f"{st.session_state.filename_base}.txt",
                 mime="text/plain",
                 use_container_width=True
@@ -383,4 +406,4 @@ if check_password():
             if selected_sheet:
                 st.dataframe(spreadsheet.worksheet(selected_sheet).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V10.2 (Ad Composer)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V10.3 (Smart Targeting)</center>", unsafe_allow_html=True)
