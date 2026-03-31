@@ -8,3 +8,4 @@ wordcloud
 matplotlib
 gspread
 oauth2client
+Pillow
