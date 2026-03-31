@@ -55,14 +55,13 @@ def check_password():
     return False
 
 # ==========================================
-# [구글 시트 연결] 🔥 에러 완벽 해결 (줄바꿈 기호 복구)
+# [구글 시트 연결]
 # ==========================================
 def connect_google_sheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds_dict = dict(st.secrets["gcp_service_account"])
         
-        # 💡 TOML에서 깨진 줄바꿈 기호를 정상적인 엔터(\n)로 강제 변환합니다.
         if "\\n" in creds_dict.get("private_key", ""):
             creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
             
@@ -132,7 +131,7 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
     return brand_text, final_review_text
 
 # ==========================================
-# [AI 요약 및 워드클라우드] 🔥 V8.4 프롬프트 & 폰트 문제 해결
+# [AI 요약 및 워드클라우드] 
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text):
     status_container.info("🧠 (3/3) 제미나이 AI가 바쁜 실무자를 위해 결과를 '초압축 요약' 중입니다...")
@@ -177,7 +176,6 @@ def create_wordcloud_summary(review_text):
         client = genai.Client(api_key=MY_GEMINI_API_KEY)
         keywords = client.models.generate_content(model='gemini-2.5-flash', contents=wc_prompt).text
         
-        # 🔥 클라우드 서버에 맑은 고딕이 없으므로, 나눔고딕을 실시간 다운로드합니다.
         font_path = "NanumGothic.ttf"
         if not os.path.exists(font_path):
             urllib.request.urlretrieve("https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf", font_path)
@@ -200,7 +198,7 @@ def create_wordcloud_summary(review_text):
         return None
 
 # ==========================================
-# [실제 화면 렌더링] V8.4 UI 복구
+# [실제 화면 렌더링] 
 # ==========================================
 if check_password():
     col_t1, col_t2 = st.columns([9, 1])
@@ -218,8 +216,16 @@ if check_password():
         with st.sidebar:
             st.header("설정")
             st.markdown("💡 **분석하고 싶은 제품의 전체 URL 주소 하나만 넣어주세요!**")
-            main_url_input = st.text_input("🔗 분석할 상품 URL", "")
-            max_pages_input = st.slider("📜 수집 페이지 수", 10, 15, 20, 25, 30, 35, 40, 45, 50)
+            
+            # 🔥 요처하신 부분 수정 완료 (빈칸 & 힌트 텍스트 제공)
+            main_url_input = st.text_input(
+                "🔗 분석할 상품 URL", 
+                value="", 
+                placeholder="예: https://www.xexymix.com/shop/shopdetail.html?branduid=2069060"
+            )
+            
+            # 🔥 요청하신 부분 수정 완료 (최소 10, 최대 50, 기본 30, 5단위씩 이동)
+            max_pages_input = st.slider("📜 수집 페이지 수", min_value=10, max_value=50, value=30, step=5)
         
         col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
         with col_btn2:
@@ -228,32 +234,34 @@ if check_password():
         status_container = st.container()
 
         if start_btn:
-            parsed_url = urlparse(main_url_input)
-            query_params = parse_qs(parsed_url.query)
-            
-            if 'branduid' not in query_params:
-                st.error("🚨 입력하신 URL에서 상품 고유 번호(branduid)를 찾을 수 없습니다.")
+            if not main_url_input: # 🔥 주소를 입력하지 않고 눌렀을 때 방어 로직 추가
+                st.warning("⚠️ 분석할 상품의 URL 주소를 먼저 입력해주세요!")
             else:
-                product_code = query_params['branduid'][0]
-                with status_container:
-                    brand_txt, review_txt = get_data_bulldozer(main_url_input, product_code, max_pages_input)
-                    if len(review_txt) < 50:
-                        st.error("🚨 리뷰 수집 실패. 크롬 드라이버가 제대로 실행되지 않았습니다.")
-                    else:
-                        report = analyze_deep_usp_summarized(brand_txt, review_txt)
-                        img = create_wordcloud_summary(review_txt)
-                        now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-                        
-                        save_to_google_sheet([now_str, product_code, main_url_input, report])
-                        
-                        st.session_state.final_report = report
-                        st.session_state.wc_img = img
-                        st.session_state.filename_base = f"USP_{product_code}_{now_str}"
-                        st.session_state.main_url = main_url_input
-                        st.session_state.analyzed = True
-                        st.toast("✅ 분석 완료 및 구글 시트 저장 성공!", icon="🎉")
+                parsed_url = urlparse(main_url_input)
+                query_params = parse_qs(parsed_url.query)
+                
+                if 'branduid' not in query_params:
+                    st.error("🚨 입력하신 URL에서 상품 고유 번호(branduid)를 찾을 수 없습니다. 젝시믹스 상품 주소가 맞는지 확인해주세요.")
+                else:
+                    product_code = query_params['branduid'][0]
+                    with status_container:
+                        brand_txt, review_txt = get_data_bulldozer(main_url_input, product_code, max_pages_input)
+                        if len(review_txt) < 50:
+                            st.error("🚨 리뷰 수집 실패. 크롬 드라이버가 제대로 실행되지 않았습니다.")
+                        else:
+                            report = analyze_deep_usp_summarized(brand_txt, review_txt)
+                            img = create_wordcloud_summary(review_txt)
+                            now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+                            
+                            save_to_google_sheet([now_str, product_code, main_url_input, report])
+                            
+                            st.session_state.final_report = report
+                            st.session_state.wc_img = img
+                            st.session_state.filename_base = f"USP_{product_code}_{now_str}"
+                            st.session_state.main_url = main_url_input
+                            st.session_state.analyzed = True
+                            st.toast("✅ 분석 완료 및 구글 시트 저장 성공!", icon="🎉")
 
-        # 📦 V8.4의 확장 패널(Expander)과 다운로드 버튼 레이아웃 복구
         if st.session_state.analyzed:
             st.markdown("---")
             result_expander = st.expander("📝 1. AI 핵심 요약 분석 결과 (클릭하여 열기)", expanded=True)
@@ -295,4 +303,4 @@ if check_password():
             if data: st.table(data)
             else: st.info("아직 저장된 내역이 없습니다.")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V9.0 (Masterpiece)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V9.1</center>", unsafe_allow_html=True)
