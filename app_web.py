@@ -14,11 +14,12 @@ import matplotlib.pyplot as plt
 import io
 import datetime
 import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 import os
 import urllib.request
 
 # ==========================================
-# [초기 세팅 영역] 클라우드 금고 연동
+# [초기 세팅 영역] 
 # ==========================================
 st.set_page_config(page_title="AI USP 추출 솔루션", page_icon="🎯", layout="wide")
 
@@ -29,7 +30,8 @@ except:
     APP_PASSWORD = "123"
     MY_GEMINI_API_KEY = "임시"
 
-GOOGLE_SHEET_NAME = "마케팅_분석_히스토리" 
+# 🔥 캡처해주신 화면에 맞춰 구글 시트 파일 이름을 정확히 수정했습니다!
+GOOGLE_SHEET_NAME = "USP_추출기" 
 
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
@@ -54,21 +56,21 @@ def check_password():
     return False
 
 # ==========================================
-# [구글 시트 연결] 🔥 강력한 에러 복구 기능 탑재
+# [구글 시트 연결] 
 # ==========================================
 def connect_google_sheet():
     try:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds_dict = dict(st.secrets["gcp_service_account"])
         
-        # 💡 어떤 형태로 복사하든 줄바꿈 기호를 완벽하게 복구합니다.
+        # 암호(PEM) 포맷이 깨지는 것을 방지하는 강력한 보호 코드
         private_key = creds_dict.get("private_key", "")
-        private_key = private_key.replace("\\n", "\n") 
+        private_key = private_key.replace("\\n", "\n").replace('"', '').replace("'", "").strip()
         creds_dict["private_key"] = private_key
-        
-        # gspread 최신 내장 함수로 깔끔하게 연결 (oauth2client 불필요)
-        client = gspread.service_account_from_dict(creds_dict)
+            
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
         return client.open(GOOGLE_SHEET_NAME).sheet1
-        
     except Exception as e:
         st.error(f"🚨 구글 시트 연결 실패: {e}")
         return None
@@ -79,26 +81,16 @@ def save_to_google_sheet(data_list):
         try:
             sheet.append_row(data_list)
         except Exception as e:
-            st.error(f"🚨 시트 기록 실패 (권한 문제일 수 있습니다): {e}")
+            st.error(f"🚨 시트 기록 실패 (이메일 공유 권한을 확인하세요): {e}")
 
 # ==========================================
-# [데이터 수집] 클라우드 전용 크롬 세팅
+# [데이터 수집] 🔥 봇 차단 우회(크롬 드라이버 전면 배치)
 # ==========================================
 def get_data_bulldozer(target_url, product_code, max_pages=50):
     encoded_parent_url = urllib.parse.quote(target_url, safe='')
     crema_api_base = f"https://review4.cre.ma/v2/xexymix.com/product_reviews/list_v3?product_code={product_code}&parent_url={encoded_parent_url}&page="
     brand_text = ""
-    status_container.info(f"🚀 (1/3) 상세페이지 설명 수집 중...")
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(target_url, headers=headers)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        brand_text = soup.get_text(separator=' ', strip=True)[:5000]
-    except Exception as e:
-        status_container.warning(f"⚠️ 상세페이지 수집 실패: {e}")
-    
     review_list = []
-    status_container.info(f"🤖 (2/3) 클라우드 브라우저를 백그라운드에서 실행하여 리뷰 수집 중...")
     
     options = Options()
     options.binary_location = "/usr/bin/chromium" 
@@ -108,10 +100,22 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
     options.add_argument('--disable-gpu')
     options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
 
+    # 브라우저를 한 번만 켜서 상세페이지와 리뷰를 모두 수집합니다!
     try:
         service = Service("/usr/bin/chromedriver") 
         driver = webdriver.Chrome(service=service, options=options)
         
+        # 1. 상세페이지 수집 (우회)
+        status_container.info(f"🚀 (1/3) 상세페이지 설명 수집 중...")
+        try:
+            driver.get(target_url)
+            time.sleep(2)
+            brand_text = driver.find_element(By.TAG_NAME, 'body').text.strip()[:5000]
+        except Exception as e:
+            status_container.warning(f"⚠️ 상세페이지 텍스트 수집 실패: {e}")
+
+        # 2. 리뷰 수집
+        status_container.info(f"🤖 (2/3) 클라우드 브라우저를 백그라운드에서 실행하여 리뷰 수집 중...")
         progress_bar = st.progress(0)
         for page in range(1, max_pages + 1):
             driver.get(f"{crema_api_base}{page}")
@@ -122,16 +126,16 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
                 break
             review_list.append(content)
             progress_bar.progress(page/max_pages)
+            
     except Exception as e:
-        status_container.error(f"⚠️ 브라우저 수집 오류: {e}")
+        status_container.error(f"⚠️ 브라우저 실행 오류: {e}")
     finally:
         try:
             driver.quit()
-            progress_bar.empty()
+            if 'progress_bar' in locals(): progress_bar.empty()
         except: pass
         
-    final_review_text = "\n".join(review_list)
-    final_review_text = final_review_text[:30000] 
+    final_review_text = "\n".join(review_list)[:30000] 
     status_container.success(f"✅ 총 {len(review_list)}페이지 분량의 실제 리뷰를 확보했습니다!")
     return brand_text, final_review_text
 
@@ -220,13 +224,12 @@ if check_password():
     with tab1:
         with st.sidebar:
             st.header("설정")
-            st.markdown("💡 **분석하고 싶은 제품의 전체 URL 주소 하나만 넣어주세요!**")
             
-            main_url_input = st.text_input(
-                "🔗 분석할 상품 URL", 
-                value="", 
-                placeholder="예: https://www.xexymix.com/shop/shopdetail.html?branduid=2069060"
-            )
+            # 🔥 요청하신 안내 문구로 완벽하게 교체되었습니다!
+            st.markdown("💡 **분석하고 싶은 제품의 전체 URL 주소 하나만 넣어주세요!**")
+            st.markdown("💡 **URL 기재 시 예시와 같이 코드까지만 입력해주세요**<br><span style='font-size:13px;'>(예시: https://www.xexymix.com/shop/shopdetail.html?branduid=2069060)</span>", unsafe_allow_html=True)
+            
+            main_url_input = st.text_input("🔗 분석할 상품 URL", value="")
             max_pages_input = st.slider("📜 수집 페이지 수", min_value=10, max_value=50, value=30, step=5)
         
         col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
@@ -243,7 +246,7 @@ if check_password():
                 query_params = parse_qs(parsed_url.query)
                 
                 if 'branduid' not in query_params:
-                    st.error("🚨 입력하신 URL에서 상품 고유 번호(branduid)를 찾을 수 없습니다. 젝시믹스 상품 주소가 맞는지 확인해주세요.")
+                    st.error("🚨 입력하신 URL에서 상품 고유 번호(branduid)를 찾을 수 없습니다.")
                 else:
                     product_code = query_params['branduid'][0]
                     with status_container:
@@ -305,4 +308,4 @@ if check_password():
             if data: st.table(data)
             else: st.info("아직 저장된 내역이 없습니다.")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V9.2</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V9.3</center>", unsafe_allow_html=True)
