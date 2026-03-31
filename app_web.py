@@ -17,7 +17,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
 import urllib.request
-import json # 🔥 JSON 통째로 읽기를 위한 마법 도구 추가
+import json
 
 # ==========================================
 # [초기 세팅 영역] 
@@ -56,16 +56,13 @@ def check_password():
     return False
 
 # ==========================================
-# [구글 시트 연결] 🔥 가장 완벽하고 확실한 JSON 로드 방식
+# [구글 시트 연결] 
 # ==========================================
 def connect_google_sheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        
-        # 스트림릿 금고에서 'GOOGLE_CREDENTIALS'라는 통짜 텍스트를 가져와서 JSON으로 읽어들입니다.
         creds_json_str = st.secrets["GOOGLE_CREDENTIALS"]
         creds_dict = json.loads(creds_json_str)
-            
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         return client.open(GOOGLE_SHEET_NAME).sheet1
@@ -82,7 +79,7 @@ def save_to_google_sheet(data_list):
             st.error(f"🚨 시트 기록 실패: {e}")
 
 # ==========================================
-# [데이터 수집] 
+# [데이터 수집] 🔥 타임아웃 방어 및 최적화
 # ==========================================
 def get_data_bulldozer(target_url, product_code, max_pages=50):
     encoded_parent_url = urllib.parse.quote(target_url, safe='')
@@ -97,29 +94,49 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
     options.add_argument('--disable-dev-shm-usage') 
     options.add_argument('--disable-gpu')
     options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+    
+    # 🔥 페이지 로딩 속도 최적화: 이미지나 불필요한 스크립트는 불러오지 않습니다.
+    prefs = {"profile.managed_default_content_settings.images": 2,
+             "profile.default_content_setting_values.notifications": 2,
+             "profile.managed_default_content_settings.stylesheets": 2,
+             "profile.managed_default_content_settings.cookies": 2,
+             "profile.managed_default_content_settings.plugins": 2,
+             "profile.managed_default_content_settings.geolocation": 2,
+             "profile.managed_default_content_settings.media_stream": 2,
+             }
+    options.add_experimental_option("prefs", prefs)
+    
+    # 🔥 페이지 로딩 타임아웃 설정 (15초 이상 걸리면 강제로 멈추고 있는 것만 긁어옵니다)
+    options.page_load_strategy = 'eager' 
 
     try:
         service = Service("/usr/bin/chromedriver") 
         driver = webdriver.Chrome(service=service, options=options)
+        driver.set_page_load_timeout(15) # 15초 타임아웃
         
+        # 1. 상세페이지 수집
         status_container.info(f"🚀 (1/3) 상세페이지 설명 수집 중...")
         try:
             driver.get(target_url)
             time.sleep(2)
             brand_text = driver.find_element(By.TAG_NAME, 'body').text.strip()[:5000]
         except Exception as e:
-            status_container.warning(f"⚠️ 상세페이지 텍스트 수집 실패: {e}")
+            status_container.warning(f"⚠️ 상세페이지 텍스트 수집 시간 초과. 기본 정보만 수집합니다.")
 
+        # 2. 리뷰 수집
         status_container.info(f"🤖 (2/3) 클라우드 브라우저를 백그라운드에서 실행하여 리뷰 수집 중...")
         progress_bar = st.progress(0)
         for page in range(1, max_pages + 1):
-            driver.get(f"{crema_api_base}{page}")
-            time.sleep(2.5)
-            content = driver.find_element(By.TAG_NAME, 'body').text.strip()
-            if len(content) < 50:
-                status_container.info(f"⏹️ {page}페이지에 더 이상 리뷰가 없어 수집을 자동 종료합니다.")
-                break
-            review_list.append(content)
+            try:
+                driver.get(f"{crema_api_base}{page}")
+                time.sleep(2)
+                content = driver.find_element(By.TAG_NAME, 'body').text.strip()
+                if len(content) < 50:
+                    status_container.info(f"⏹️ {page}페이지에 더 이상 리뷰가 없어 수집을 자동 종료합니다.")
+                    break
+                review_list.append(content)
+            except Exception as e:
+                pass # 특정 페이지에서 에러가 나도 멈추지 않고 다음 페이지로 넘어갑니다.
             progress_bar.progress(page/max_pages)
             
     except Exception as e:
@@ -135,36 +152,56 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
     return brand_text, final_review_text
 
 # ==========================================
-# [AI 요약 및 워드클라우드] 
+# [AI 요약] 🔥 안다르 스타일 초개인화 프롬프트 반영
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text):
-    status_container.info("🧠 (3/3) 제미나이 AI가 바쁜 실무자를 위해 결과를 '초압축 요약' 중입니다...")
+    status_container.info("🧠 (3/3) 제미나이 AI가 '안다르 스타일' 커머스 전략으로 분석 중입니다...")
     prompt = f"""
-    당신은 10년 차 데이터 기반 시니어 퍼포먼스 마케터입니다. 
-    바쁜 실무자가 한눈에 파악할 수 있도록 구구절절한 설명은 전부 빼고, **최대한 짧고 명확하게 개조식(불릿 포인트)**으로만 요약하세요.
-    
-    [출력 양식]
-    ### 🏢 1. 브랜드 기획 의도 (상세페이지)
-    * 핵심 소구점 3가지 (각 1줄 요약)
-    
-    ### 🗣️ 2. 고객 진짜 반응 (리뷰 핵심 요약)
-    * **극찬 키워드 Top 5**: (예: 핏 보정 - 허리 라인을 확실히 잡아줌)
-    * **아쉬운 점 Top 3**: (예: 지퍼 - 올리고 내릴 때 다소 뻑뻑함)
-    * **고객의 진짜 구매 이유**: (1문장 요약)
-    
-    ### 🎯 3. 타겟 페르소나 & 후킹 카피 (초압축)
-    * **주요 타겟층**: 리뷰를 바탕으로 한 주요 연령대, 성별, 활동 특성 요약
-    * **시즌/타겟 맞춤 카피 제안 (무조건 20자 내외로 짧게!)**:
-      1) [불만 해결형]: (예: 부해보이는 집업은 이제 그만!)
-      2) [욕망 자극형]: (예: 입는 순간 -3kg, 마법의 슬림핏)
-      3) [시즌 맞춤형]: (예: 올봄 야외 러닝, 이거 하나면 끝!)
-    
-    ==========================
-    [데이터 1: 상세페이지]
+    # Role: 데이터 기반의 초개인화 커머스 전략가 (안다르 스타일 카피라이팅 전문가)
+    # Context: 상세페이지의 기술적 스펙을 고객의 '라이프스타일 이익'으로 치환하여 클릭률(CTR)을 200% 이상 개선하는 것이 목표
+
+    # 분석 로직 (Andar-Style Framework):
+    1. 마이크로 페인포인트(Micro-Painpoint): 고객이 스스로도 인지하지 못했던 '한 끗'의 불편함을 찾아낸다.
+    2. 기술의 일상화: 어려운 소재 설명을 일상적 표현으로 바꾼다.
+    3. 결핍의 시각화: 이 제품이 없을 때 겪는 민망함이나 불편함을 시각적으로 묘사한다.
+    4. 결과적 감정(Emotion): 제품을 사용한 후 고객이 느낄 '자존감'이나 '해방감'에 집중한다.
+
+    ---
+    # Input Data:
+    [상세페이지 텍스트]
     {brand_text}
     
-    [데이터 2: 고객 리뷰 전량]
+    [고객 리뷰 데이터 전량]
     {review_text}
+    ---
+
+    # Output Format:
+    ### 🏢 1. 브랜드 기획 의도 & '한 끗'의 차이
+    *상세페이지에서 강조하는 기능이 고객의 어떤 '불편한 상황'을 해결하는지 정의하세요.*
+    * **해결하고자 하는 결핍**: (1줄 요약)
+    * **독보적 기술 스펙**: (1줄 요약)
+    * **치환된 고객 이익**: (1줄 요약)
+
+    ### 🗣️ 2. 고객의 진짜 목소리 (Deep Review Analysis)
+    *단순 후기가 아닌, 광고 소재의 '기승전결'이 되는 리뷰를 선별하세요.*
+    * **[Unspoken Pain]**: 리뷰 속 숨겨진 불만 (예: "타사 제품은 허리 말림이 심해서 운동 흐름이 깨져요")
+    * **[Moment of Wow]**: 고객이 감동한 찰나 (예: "입자마자 보정 속옷 입은 것처럼 뱃살이 사라졌어요")
+    * **[New Usage]**: 마케터도 몰랐던 의외의 용도 (예: "운동복인데 출근룩으로 입어도 손색없네요")
+
+    ### 🎯 3. 안다르식 다각도 후킹 카피 (8가지 앵글)
+    *각 카피는 20자 이내로, 고객의 '공감'과 '클릭'을 즉각 유도합니다.*
+    1. **[문제 저격형]** (카피 작성)
+    2. **[TPO 특정형]** (카피 작성)
+    3. **[비교 우위형]** (카피 작성)
+    4. **[데이터 증명형]** (카피 작성)
+    5. **[자존감 고취형]** (카피 작성)
+    6. **[관리 편의형]** (카피 작성)
+    7. **[리뷰 워딩형]** (카피 작성)
+    8. **[손실 강조형]** (카피 작성)
+
+    ### 🖼️ 4. 비주얼 훅(Visual Hook) 제안
+    *카피의 효과를 극대화할 수 있는 광고 이미지/영상 구도를 제안하세요.*
+    * (1~2줄 구체적인 장면 묘사)
     """
     try:
         client = genai.Client(api_key=MY_GEMINI_API_KEY)
@@ -245,7 +282,7 @@ if check_password():
                     with status_container:
                         brand_txt, review_txt = get_data_bulldozer(main_url_input, product_code, max_pages_input)
                         if len(review_txt) < 50:
-                            st.error("🚨 리뷰 수집 실패. 크롬 드라이버가 제대로 실행되지 않았습니다.")
+                            st.error("🚨 리뷰 수집 데이터가 부족하여 분석을 진행할 수 없습니다.")
                         else:
                             report = analyze_deep_usp_summarized(brand_txt, review_txt)
                             img = create_wordcloud_summary(review_txt)
@@ -301,4 +338,4 @@ if check_password():
             if data: st.table(data)
             else: st.info("아직 저장된 내역이 없습니다.")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V9.4</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V9.5</center>", unsafe_allow_html=True)
