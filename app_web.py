@@ -7,8 +7,6 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.os_manager import ChromeType # 클라우드 크롬 버전을 위해 추가!
 from selenium.webdriver.common.by import By
 from google import genai
 from wordcloud import WordCloud
@@ -20,16 +18,13 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="AI USP 추출 솔루션", page_icon="🔐", layout="wide")
 
-# ==========================================
-# [보안 및 초기 세팅 영역] 클라우드 금고 연동
-# ==========================================
 try:
     APP_PASSWORD = st.secrets["APP_PASSWORD"] 
     MY_GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 except:
     st.warning("⚠️ 클라우드 보안 금고(Secrets)가 아직 설정되지 않았습니다.")
-    APP_PASSWORD = "임시비밀번호"
-    MY_GEMINI_API_KEY = "임시API키"
+    APP_PASSWORD = "123"
+    MY_GEMINI_API_KEY = "임시"
 
 GOOGLE_SHEET_NAME = "마케팅_분석_히스토리" 
 
@@ -39,13 +34,9 @@ for key in ['analyzed', 'final_report', 'wc_img', 'filename_base', 'main_url']:
     if key not in st.session_state:
         st.session_state[key] = None if key == 'wc_img' else ""
 
-# ==========================================
-# [비밀번호 및 시트 연결 함수]
-# ==========================================
 def check_password():
     if st.session_state.authenticated:
         return True
-
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.title("🔐 사내 전용 솔루션 접속")
@@ -74,9 +65,6 @@ def save_to_google_sheet(data_list):
     sheet = connect_google_sheet()
     if sheet: sheet.append_row(data_list)
 
-# ==========================================
-# [핵심 수집/분석 로직] 🔥 서버용 옵션 추가!
-# ==========================================
 def get_data_bulldozer(target_url, product_code, max_pages=50):
     encoded_parent_url = urllib.parse.quote(target_url, safe='')
     crema_api_base = f"https://review4.cre.ma/v2/xexymix.com/product_reviews/list_v3?product_code={product_code}&parent_url={encoded_parent_url}&page="
@@ -90,18 +78,17 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
     
     review_list = []
     
-    # 🔥 이 부분이 서버 환경(Linux)에 맞춰 완벽하게 업그레이드 되었습니다!
+    # 🔥 클라우드 전용 절대 경로 세팅
     options = Options()
-    options.add_argument('--headless=new') 
-    options.add_argument('--no-sandbox') # 권한 충돌 방지
-    options.add_argument('--disable-dev-shm-usage') # 메모리 부족 방지
+    options.binary_location = "/usr/bin/chromium" 
+    options.add_argument('--headless') 
+    options.add_argument('--no-sandbox') 
+    options.add_argument('--disable-dev-shm-usage') 
     options.add_argument('--disable-gpu')
-    options.add_argument('--window-size=1920,1080')
     options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
 
     try:
-        # 클라우드용 Chromium 드라이버 강제 설치 옵션
-        service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+        service = Service("/usr/bin/chromedriver") 
         driver = webdriver.Chrome(service=service, options=options)
         
         p_bar = st.progress(0)
@@ -127,9 +114,6 @@ def analyze_deep_usp_summarized(brand_text, review_text):
     response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
     return response.text
 
-# ==========================================
-# [실제 화면 렌더링]
-# ==========================================
 if check_password():
     col_t1, col_t2 = st.columns([9, 1])
     with col_t2:
@@ -137,7 +121,7 @@ if check_password():
             st.session_state.authenticated = False
             st.rerun()
 
-    st.title("🎯 마케팅 USP & 카피 자동 추출기")
+    st.title("🎯 마케팅 USP 자동 추출기 (Cloud Pro)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리 보기"])
@@ -162,7 +146,7 @@ if check_password():
                 with status_container:
                     brand_txt, review_txt = get_data_bulldozer(main_url_input, product_code, max_pages_input)
                     if len(review_txt) < 50:
-                        st.error("리뷰 수집 실패. 크롬 드라이버 상태를 확인하세요.")
+                        st.error("🚨 리뷰 수집 실패. 크롬 드라이버가 제대로 실행되지 않았습니다.")
                     else:
                         report = analyze_deep_usp_summarized(brand_txt, review_txt)
                         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -185,6 +169,3 @@ if check_password():
             data = sheet.get_all_records()
             if data: st.table(data)
             else: st.info("아직 저장된 내역이 없습니다.")
-
-    st.markdown("---")
-    st.markdown("<center>마케팅 자동화 솔루션 | Internal Tool V8.8 (Cloud Ready)</center>", unsafe_allow_html=True)
