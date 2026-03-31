@@ -35,7 +35,7 @@ GOOGLE_SHEET_NAME = "USP_추출기"
 
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
-for key in ['analyzed', 'final_report', 'wc_img', 'filename_base', 'main_url']:
+for key in ['analyzed', 'final_report', 'wc_img', 'filename_base', 'main_url', 'worker_name']:
     if key not in st.session_state:
         st.session_state[key] = None if key == 'wc_img' else ""
 
@@ -56,30 +56,36 @@ def check_password():
     return False
 
 # ==========================================
-# [구글 시트 연결] 
+# [구글 시트 연결]
 # ==========================================
-def connect_google_sheet():
+def connect_google_spreadsheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds_json_str = st.secrets["GOOGLE_CREDENTIALS"]
         creds_dict = json.loads(creds_json_str)
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
-        return client.open(GOOGLE_SHEET_NAME).sheet1
+        return client.open(GOOGLE_SHEET_NAME) 
     except Exception as e:
         st.error(f"🚨 구글 시트 연결 실패: {e}")
         return None
 
-def save_to_google_sheet(data_list):
-    sheet = connect_google_sheet()
-    if sheet: 
+def save_to_google_sheet(data_list, worker_name):
+    spreadsheet = connect_google_spreadsheet()
+    if spreadsheet: 
         try:
-            sheet.append_row(data_list)
+            try:
+                worksheet = spreadsheet.worksheet(worker_name)
+            except gspread.WorksheetNotFound:
+                worksheet = spreadsheet.add_worksheet(title=worker_name, rows="100", cols="10")
+                worksheet.append_row(["날짜", "상품코드", "URL", "분석결과"])
+            
+            worksheet.append_row(data_list)
         except Exception as e:
             st.error(f"🚨 시트 기록 실패: {e}")
 
 # ==========================================
-# [데이터 수집] 🔥 타임아웃 방어 및 최적화
+# [데이터 수집] 
 # ==========================================
 def get_data_bulldozer(target_url, product_code, max_pages=50):
     encoded_parent_url = urllib.parse.quote(target_url, safe='')
@@ -95,7 +101,6 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
     options.add_argument('--disable-gpu')
     options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
     
-    # 🔥 페이지 로딩 속도 최적화: 이미지나 불필요한 스크립트는 불러오지 않습니다.
     prefs = {"profile.managed_default_content_settings.images": 2,
              "profile.default_content_setting_values.notifications": 2,
              "profile.managed_default_content_settings.stylesheets": 2,
@@ -105,16 +110,13 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
              "profile.managed_default_content_settings.media_stream": 2,
              }
     options.add_experimental_option("prefs", prefs)
-    
-    # 🔥 페이지 로딩 타임아웃 설정 (15초 이상 걸리면 강제로 멈추고 있는 것만 긁어옵니다)
     options.page_load_strategy = 'eager' 
 
     try:
         service = Service("/usr/bin/chromedriver") 
         driver = webdriver.Chrome(service=service, options=options)
-        driver.set_page_load_timeout(15) # 15초 타임아웃
+        driver.set_page_load_timeout(15) 
         
-        # 1. 상세페이지 수집
         status_container.info(f"🚀 (1/3) 상세페이지 설명 수집 중...")
         try:
             driver.get(target_url)
@@ -123,20 +125,23 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
         except Exception as e:
             status_container.warning(f"⚠️ 상세페이지 텍스트 수집 시간 초과. 기본 정보만 수집합니다.")
 
-        # 2. 리뷰 수집
-        status_container.info(f"🤖 (2/3) 클라우드 브라우저를 백그라운드에서 실행하여 리뷰 수집 중...")
+        status_container.info(f"🤖 (2/3) 리뷰 데이터 확인 및 수집 중...")
         progress_bar = st.progress(0)
         for page in range(1, max_pages + 1):
             try:
                 driver.get(f"{crema_api_base}{page}")
                 time.sleep(2)
                 content = driver.find_element(By.TAG_NAME, 'body').text.strip()
+                # 리뷰가 없거나 끝났으면 바로 종료하고 다음 단계로 부드럽게 넘어갑니다.
                 if len(content) < 50:
-                    status_container.info(f"⏹️ {page}페이지에 더 이상 리뷰가 없어 수집을 자동 종료합니다.")
+                    if page == 1:
+                        status_container.info(f"💡 아직 등록된 리뷰가 없는 상품입니다. 상세페이지 기반으로만 분석을 진행합니다.")
+                    else:
+                        status_container.info(f"⏹️ {page}페이지에 더 이상 리뷰가 없어 수집을 자동 종료합니다.")
                     break
                 review_list.append(content)
             except Exception as e:
-                pass # 특정 페이지에서 에러가 나도 멈추지 않고 다음 페이지로 넘어갑니다.
+                pass
             progress_bar.progress(page/max_pages)
             
     except Exception as e:
@@ -148,19 +153,20 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
         except: pass
         
     final_review_text = "\n".join(review_list)[:30000] 
-    status_container.success(f"✅ 총 {len(review_list)}페이지 분량의 실제 리뷰를 확보했습니다!")
+    if len(review_list) > 0:
+        status_container.success(f"✅ 총 {len(review_list)}페이지 분량의 실제 리뷰를 확보했습니다!")
     return brand_text, final_review_text
 
 # ==========================================
-# [AI 요약] 🔥 안다르 스타일 초개인화 프롬프트 반영
+# [AI 요약] 🔥 특정 브랜드 지칭 제거, 서브타이틀 제거, USP 고도화 반영
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text):
-    status_container.info("🧠 (3/3) 제미나이 AI가 '안다르 스타일' 커머스 전략으로 분석 중입니다...")
+    status_container.info("🧠 (3/3) 제미나이 AI가 'USP 고도화' 커머스 전략으로 분석 중입니다...")
     prompt = f"""
-    # Role: 데이터 기반의 초개인화 커머스 전략가 (안다르 스타일 카피라이팅 전문가)
+    # Role: 데이터 기반의 초개인화 커머스 전략가 (USP 고도화 카피라이팅 전문가)
     # Context: 상세페이지의 기술적 스펙을 고객의 '라이프스타일 이익'으로 치환하여 클릭률(CTR)을 200% 이상 개선하는 것이 목표
 
-    # 분석 로직 (Andar-Style Framework):
+    # 분석 로직 (USP 고도화 Framework):
     1. 마이크로 페인포인트(Micro-Painpoint): 고객이 스스로도 인지하지 못했던 '한 끗'의 불편함을 찾아낸다.
     2. 기술의 일상화: 어려운 소재 설명을 일상적 표현으로 바꾼다.
     3. 결핍의 시각화: 이 제품이 없을 때 겪는 민망함이나 불편함을 시각적으로 묘사한다.
@@ -172,37 +178,25 @@ def analyze_deep_usp_summarized(brand_text, review_text):
     {brand_text}
     
     [고객 리뷰 데이터 전량]
-    {review_text}
+    {review_text if len(review_text) > 50 else "현재 수집된 리뷰 데이터가 없습니다."}
     ---
 
     # Output Format:
+    (주의: 고객 리뷰 데이터가 '없음'인 경우, 2번 리뷰 항목은 '수집된 리뷰가 없습니다'라고 기재하고, 나머지 항목은 상세페이지를 기반으로 유추하여 작성하세요.)
+
     ### 🏢 1. 브랜드 기획 의도 & '한 끗'의 차이
-    *상세페이지에서 강조하는 기능이 고객의 어떤 '불편한 상황'을 해결하는지 정의하세요.*
-    * **해결하고자 하는 결핍**: (1줄 요약)
-    * **독보적 기술 스펙**: (1줄 요약)
-    * **치환된 고객 이익**: (1줄 요약)
+    * **해결하고자 하는 결핍**: 
+    * **독보적 기술 스펙**: 
+    * **치환된 고객 이익**: 
 
     ### 🗣️ 2. 고객의 진짜 목소리 (Deep Review Analysis)
-    *단순 후기가 아닌, 광고 소재의 '기승전결'이 되는 리뷰를 선별하세요.*
-    * **[Unspoken Pain]**: 리뷰 속 숨겨진 불만 (예: "타사 제품은 허리 말림이 심해서 운동 흐름이 깨져요")
-    * **[Moment of Wow]**: 고객이 감동한 찰나 (예: "입자마자 보정 속옷 입은 것처럼 뱃살이 사라졌어요")
-    * **[New Usage]**: 마케터도 몰랐던 의외의 용도 (예: "운동복인데 출근룩으로 입어도 손색없네요")
+    * **[Unspoken Pain]**: 
+    * **[Moment of Wow]**: 
+    * **[New Usage]**: 
 
-    ### 🎯 3. 안다르식 다각도 후킹 카피 (8가지 앵글)
-    *각 카피는 20자 이내로, 고객의 '공감'과 '클릭'을 즉각 유도합니다.*
-    1. **[문제 저격형]** (카피 작성)
-    2. **[TPO 특정형]** (카피 작성)
-    3. **[비교 우위형]** (카피 작성)
-    4. **[데이터 증명형]** (카피 작성)
-    5. **[자존감 고취형]** (카피 작성)
-    6. **[관리 편의형]** (카피 작성)
-    7. **[리뷰 워딩형]** (카피 작성)
-    8. **[손실 강조형]** (카피 작성)
-
-    ### 🖼️ 4. 비주얼 훅(Visual Hook) 제안
-    *카피의 효과를 극대화할 수 있는 광고 이미지/영상 구도를 제안하세요.*
-    * (1~2줄 구체적인 장면 묘사)
-    """
+    ### 🎯 3. USP 고도화 다각도 후킹 카피 (8가지 앵글, 각 20자 이내)
+    1. **[문제 저격형]** 2. **[TPO 특정형]** 3. **[비교 우위형]** 4. **[데이터 증명형]** 5. **[자존감 고취형]** 6. **[관리 편의형]** 7. **[리뷰 워딩형]** 8. **[손실 강조형]** ### 🖼️ 4. 비주얼 훅(Visual Hook) 제안
+    * """
     try:
         client = genai.Client(api_key=MY_GEMINI_API_KEY)
         response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
@@ -256,6 +250,11 @@ if check_password():
     with tab1:
         with st.sidebar:
             st.header("설정")
+            
+            st.markdown("💡 **담당자 이름을 입력해주세요 (시트 탭 구분용)**")
+            worker_input = st.text_input("👤 작업자 이름", value="", placeholder="예: 김마케터")
+            st.markdown("---")
+            
             st.markdown("💡 **분석하고 싶은 제품의 전체 URL 주소 하나만 넣어주세요!**")
             st.markdown("💡 **URL 기재 시 예시와 같이 코드까지만 입력해주세요**<br><span style='font-size:13px;'>(예시: https://www.xexymix.com/shop/shopdetail.html?branduid=2069060)</span>", unsafe_allow_html=True)
             
@@ -269,7 +268,9 @@ if check_password():
         status_container = st.container()
 
         if start_btn:
-            if not main_url_input: 
+            if not worker_input:
+                st.warning("⚠️ 작업자 이름을 먼저 입력해주세요! (구글 시트 탭 생성을 위해 필수입니다)")
+            elif not main_url_input: 
                 st.warning("⚠️ 분석할 상품의 URL 주소를 먼저 입력해주세요!")
             else:
                 parsed_url = urlparse(main_url_input)
@@ -281,21 +282,31 @@ if check_password():
                     product_code = query_params['branduid'][0]
                     with status_container:
                         brand_txt, review_txt = get_data_bulldozer(main_url_input, product_code, max_pages_input)
+                        
+                        # 🔥 에러로 멈추지 않고, 무조건 AI 분석으로 넘어갑니다.
+                        report = analyze_deep_usp_summarized(brand_txt, review_txt)
+                        
+                        # 리뷰가 없을 경우 워드클라우드 생성 생략
                         if len(review_txt) < 50:
-                            st.error("🚨 리뷰 수집 데이터가 부족하여 분석을 진행할 수 없습니다.")
+                            img = None
+                            st.info("💡 리뷰가 없는 상품이라 워드클라우드 이미지는 생성하지 않았습니다.")
                         else:
-                            report = analyze_deep_usp_summarized(brand_txt, review_txt)
                             img = create_wordcloud_summary(review_txt)
-                            now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-                            
-                            save_to_google_sheet([now_str, product_code, main_url_input, report])
-                            
-                            st.session_state.final_report = report
-                            st.session_state.wc_img = img
-                            st.session_state.filename_base = f"USP_{product_code}_{now_str}"
-                            st.session_state.main_url = main_url_input
-                            st.session_state.analyzed = True
-                            st.toast("✅ 분석 완료 및 구글 시트 저장 성공!", icon="🎉")
+                        
+                        now = datetime.datetime.now()
+                        weekdays = ['월', '화', '수', '목', '금', '토', '일']
+                        formatted_date = f"{now.strftime('%Y-%m-%d')}({weekdays[now.weekday()]})"
+                        now_str = now.strftime("%Y%m%d_%H%M")
+                        
+                        save_to_google_sheet([formatted_date, product_code, main_url_input, report], worker_input)
+                        
+                        st.session_state.final_report = report
+                        st.session_state.wc_img = img
+                        st.session_state.filename_base = f"USP_{product_code}_{now_str}"
+                        st.session_state.main_url = main_url_input
+                        st.session_state.worker_name = worker_input
+                        st.session_state.analyzed = True
+                        st.toast(f"✅ 분석 완료! 구글 시트 [{worker_input}] 탭에 저장되었습니다.", icon="🎉")
 
         if st.session_state.analyzed:
             st.markdown("---")
@@ -309,13 +320,13 @@ if check_password():
                 if st.session_state.wc_img:
                     st.image(st.session_state.wc_img, caption="리뷰 핵심 키워드")
                 else:
-                    st.markdown("워드클라우드 이미지를 생성할 수 없습니다.")
+                    st.markdown("현재 상품은 수집된 리뷰가 없어 워드클라우드를 제공하지 않습니다.")
             
             col4, col5 = st.columns([1, 1])
             with col4:
                 st.download_button(
                     label="💾 요약 보고서(.txt) 다운로드",
-                    data=f"분석 대상: {st.session_state.main_url}\n==========================\n\n{st.session_state.final_report}",
+                    data=f"분석 대상: {st.session_state.main_url}\n작업자: {st.session_state.worker_name}\n==========================\n\n{st.session_state.final_report}",
                     file_name=f"{st.session_state.filename_base}.txt",
                     mime="text/plain",
                     use_container_width=True
@@ -332,10 +343,19 @@ if check_password():
 
     with tab2:
         st.header("📋 과거 분석 히스토리")
-        sheet = connect_google_sheet()
-        if sheet:
-            data = sheet.get_all_records()
-            if data: st.table(data)
-            else: st.info("아직 저장된 내역이 없습니다.")
+        spreadsheet = connect_google_spreadsheet()
+        if spreadsheet:
+            worksheets = spreadsheet.worksheets()
+            sheet_names = [ws.title for ws in worksheets]
+            
+            selected_sheet = st.selectbox("📂 조회할 작업자 탭 선택", sheet_names)
+            
+            if selected_sheet:
+                worksheet = spreadsheet.worksheet(selected_sheet)
+                data = worksheet.get_all_records()
+                if data: 
+                    st.dataframe(data, use_container_width=True) 
+                else: 
+                    st.info(f"[{selected_sheet}] 탭에 아직 저장된 분석 내역이 없습니다.")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V9.5</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V9.7</center>", unsafe_allow_html=True)
