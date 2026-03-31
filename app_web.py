@@ -8,6 +8,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.core.os_manager import ChromeType # 클라우드 크롬 버전을 위해 추가!
 from selenium.webdriver.common.by import By
 from google import genai
 from wordcloud import WordCloud
@@ -17,12 +18,11 @@ import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-st.set_page_config(page_title="AI USP 추출 솔루션 (보안)", page_icon="🔐", layout="wide")
+st.set_page_config(page_title="AI USP 추출 솔루션", page_icon="🔐", layout="wide")
 
 # ==========================================
-# [보안 및 초기 세팅 영역] 클라우드 금고(Secrets) 연동
+# [보안 및 초기 세팅 영역] 클라우드 금고 연동
 # ==========================================
-# 파일에 암호를 적지 않고, 스트림릿 서버의 '안전 금고'에서 꺼내옵니다!
 try:
     APP_PASSWORD = st.secrets["APP_PASSWORD"] 
     MY_GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
@@ -33,7 +33,6 @@ except:
 
 GOOGLE_SHEET_NAME = "마케팅_분석_히스토리" 
 
-# 세션 상태 초기화
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 for key in ['analyzed', 'final_report', 'wc_img', 'filename_base', 'main_url']:
@@ -63,7 +62,6 @@ def check_password():
 def connect_google_sheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        # JSON 파일을 읽는 대신, 스트림릿 금고에서 구글 암호를 직접 꺼내옵니다!
         creds_dict = dict(st.secrets["gcp_service_account"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
@@ -77,7 +75,7 @@ def save_to_google_sheet(data_list):
     if sheet: sheet.append_row(data_list)
 
 # ==========================================
-# [핵심 수집/분석 로직] (이전과 동일)
+# [핵심 수집/분석 로직] 🔥 서버용 옵션 추가!
 # ==========================================
 def get_data_bulldozer(target_url, product_code, max_pages=50):
     encoded_parent_url = urllib.parse.quote(target_url, safe='')
@@ -89,11 +87,23 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
         soup = BeautifulSoup(res.text, 'html.parser')
         brand_text = soup.get_text(separator=' ', strip=True)[:5000]
     except: pass
+    
     review_list = []
+    
+    # 🔥 이 부분이 서버 환경(Linux)에 맞춰 완벽하게 업그레이드 되었습니다!
     options = Options()
-    options.add_argument('--headless')
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    options.add_argument('--headless=new') 
+    options.add_argument('--no-sandbox') # 권한 충돌 방지
+    options.add_argument('--disable-dev-shm-usage') # 메모리 부족 방지
+    options.add_argument('--disable-gpu')
+    options.add_argument('--window-size=1920,1080')
+    options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+
     try:
+        # 클라우드용 Chromium 드라이버 강제 설치 옵션
+        service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+        driver = webdriver.Chrome(service=service, options=options)
+        
         p_bar = st.progress(0)
         for page in range(1, max_pages + 1):
             driver.get(f"{crema_api_base}{page}")
@@ -102,8 +112,13 @@ def get_data_bulldozer(target_url, product_code, max_pages=50):
             if len(content) < 50: break
             review_list.append(content)
             p_bar.progress(page/max_pages)
+    except Exception as e:
+        st.error(f"⚠️ 브라우저 수집 오류: {e}")
     finally:
-        driver.quit()
+        try:
+            driver.quit()
+        except: pass
+        
     return brand_text, "\n".join(review_list)
 
 def analyze_deep_usp_summarized(brand_text, review_text):
@@ -146,15 +161,17 @@ if check_password():
             if product_code:
                 with status_container:
                     brand_txt, review_txt = get_data_bulldozer(main_url_input, product_code, max_pages_input)
-                    report = analyze_deep_usp_summarized(brand_txt, review_txt)
-                    
-                    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                    save_to_google_sheet([now, product_code, main_url_input, report])
-                    
-                    st.session_state.final_report = report
-                    st.session_state.analyzed = True
-                    st.session_state.main_url = main_url_input
-                    st.toast("✅ 분석 완료 및 구글 시트 저장 성공!", icon="🎉")
+                    if len(review_txt) < 50:
+                        st.error("리뷰 수집 실패. 크롬 드라이버 상태를 확인하세요.")
+                    else:
+                        report = analyze_deep_usp_summarized(brand_txt, review_txt)
+                        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                        save_to_google_sheet([now, product_code, main_url_input, report])
+                        
+                        st.session_state.final_report = report
+                        st.session_state.analyzed = True
+                        st.session_state.main_url = main_url_input
+                        st.toast("✅ 분석 완료 및 구글 시트 저장 성공!", icon="🎉")
 
         if st.session_state.analyzed:
             st.markdown("---")
@@ -170,4 +187,4 @@ if check_password():
             else: st.info("아직 저장된 내역이 없습니다.")
 
     st.markdown("---")
-    st.markdown("<center>마케팅 자동화 솔루션 | Internal Tool V8.7 (Cloud Ready)</center>", unsafe_allow_html=True)
+    st.markdown("<center>마케팅 자동화 솔루션 | Internal Tool V8.8 (Cloud Ready)</center>", unsafe_allow_html=True)
