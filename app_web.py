@@ -81,7 +81,7 @@ def save_to_google_sheet(data_list, worker_name):
             st.error(f"🚨 시트 기록 실패: {e}")
 
 # ==========================================
-# [데이터 수집 엔진]
+# [데이터 수집 엔진] 🔥 강력한 타임아웃 방어 로직 추가
 # ==========================================
 def get_data_bulldozer(target_url, max_pages=30):
     brand_text = ""
@@ -99,12 +99,26 @@ def get_data_bulldozer(target_url, max_pages=30):
     try:
         service = Service("/usr/bin/chromedriver") 
         driver = webdriver.Chrome(service=service, options=options)
-        driver.set_page_load_timeout(20)
+        
+        # 🔥 15초 안에 안 열리면 강제로 끊어버립니다.
+        driver.set_page_load_timeout(15)
         
         status_container.info(f"🚀 (1/3) 상세페이지 설명 수집 중...")
-        driver.get(target_url)
-        time.sleep(3)
-        brand_text = driver.find_element(By.TAG_NAME, 'body').text.strip()[:5000]
+        try:
+            driver.get(target_url)
+            time.sleep(2)
+        except Exception as e:
+            # 15초가 지나 타임아웃 에러가 나더라도, 무시하고 진행합니다! (서버 기절 방지)
+            try:
+                driver.execute_script("window.stop();") # 브라우저 로딩 강제 종료
+            except: pass
+            status_container.warning("⚠️ 상세페이지 로딩이 길어 강제 중단 후 텍스트만 추출합니다.")
+
+        # 어떻게든 화면에 뜬 글자만 긁어옵니다.
+        try:
+            brand_text = driver.find_element(By.TAG_NAME, 'body').text.strip()[:5000]
+        except:
+            brand_text = "상세페이지 텍스트 수집 실패"
 
         status_container.info(f"🤖 (2/3) 리뷰 수집 경로 분석 및 추출 중...")
         if "xexymix.com" in target_url:
@@ -113,23 +127,29 @@ def get_data_bulldozer(target_url, max_pages=30):
             if product_code:
                 encoded_url = urllib.parse.quote(target_url, safe='')
                 for page in range(1, max_pages + 1):
-                    driver.get(f"https://review4.cre.ma/v2/xexymix.com/product_reviews/list_v3?product_code={product_code}&parent_url={encoded_url}&page={page}")
-                    time.sleep(2)
-                    content = driver.find_element(By.TAG_NAME, 'body').text.strip()
-                    if len(content) < 50: break
-                    review_list.append(content)
+                    try:
+                        driver.get(f"https://review4.cre.ma/v2/xexymix.com/product_reviews/list_v3?product_code={product_code}&parent_url={encoded_url}&page={page}")
+                        time.sleep(2)
+                        content = driver.find_element(By.TAG_NAME, 'body').text.strip()
+                        if len(content) < 50: break
+                        review_list.append(content)
+                    except Exception as review_e:
+                        # 중간에 한 페이지가 멈춰도 전체가 망가지지 않게 그냥 넘어갑니다(Pass).
+                        pass
         else:
             review_list.append(brand_text[1000:4000])
             
     except Exception as e:
-        status_container.error(f"⚠️ 수집 중 오류: {e}")
+        status_container.error(f"⚠️ 브라우저 시스템 오류: {e}")
     finally:
-        driver.quit()
+        try:
+            driver.quit()
+        except: pass
         
     return brand_text, "\n".join(review_list)[:30000]
 
 # ==========================================
-# [AI 요약] 🔥 V10.0: 시니어 커머스 전략가 (숏폼 영상 및 소재 기획 추가)
+# [AI 요약]
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text):
     status_container.info("🧠 (3/3) 제미나이 AI가 '생활 밀착형 USP 고도화' 전략으로 분석 중입니다...")
@@ -247,7 +267,6 @@ if check_password():
                     
                     if len(review_txt) < 50:
                         img = None
-                        st.info("💡 리뷰가 없는 상품이라 워드클라우드 이미지는 생략합니다.")
                     else:
                         img = create_wordcloud_summary(review_txt)
                     
@@ -312,4 +331,4 @@ if check_password():
             if selected_sheet:
                 st.dataframe(spreadsheet.worksheet(selected_sheet).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V10.0 (Masterpiece)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V10.1</center>", unsafe_allow_html=True)
