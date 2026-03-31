@@ -83,12 +83,14 @@ def save_to_google_sheet(data_list, worker_name):
             st.error(f"🚨 시트 기록 실패: {e}")
 
 # ==========================================
-# [데이터 수집 엔진] 
+# [데이터 수집 엔진] 🔥 진짜 상품 이미지 필터링 로직 추가
 # ==========================================
 def get_data_bulldozer(target_url, max_pages=30):
     brand_text = ""
     review_list = []
     main_img_url = "" 
+    
+    status_container.info(f"🚀 (1/3) 대상 서버 접속 및 데이터 수집 준비 중...")
     
     options = Options()
     options.binary_location = "/usr/bin/chromium" 
@@ -100,16 +102,45 @@ def get_data_bulldozer(target_url, max_pages=30):
     options.page_load_strategy = 'eager' 
 
     try:
+        # 🔥 로고 배제 & 진짜 상품 이미지 스캐너
         try:
-            res = requests.get(target_url, headers={'User-Agent': 'Mozilla/5.0'})
+            res = requests.get(target_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
             soup = BeautifulSoup(res.text, 'html.parser')
+            
+            valid_imgs = []
+            
+            # 1. 대표 이미지(og:image) 확인. 단, URL에 'logo'가 없어야 함!
             og_img = soup.find('meta', property='og:image')
             if og_img and og_img.get('content'):
-                main_img_url = og_img['content']
-                if main_img_url.startswith('//'):
-                    main_img_url = 'https:' + main_img_url
+                og_src = og_img['content']
+                if 'logo' not in og_src.lower():
+                    valid_imgs.append(og_src)
+                    
+            # 2. 본문에 있는 모든 이미지(img 태그) 뒤지기
+            for img in soup.find_all('img'):
+                src = img.get('src', '') or img.get('data-src', '')
+                if not src: continue
+                
+                src_lower = src.lower()
+                # 로고, 아이콘, 배너, 버튼, 빈 이미지, gif 등 '잡다한' 요소 싹 필터링
+                if any(x in src_lower for x in ['logo', 'icon', 'banner', 'btn', 'button', '.gif', 'header', 'footer', 'svg', 'blank']):
+                    continue
+                    
+                # 절대 경로로 변환
+                if src.startswith('//'):
+                    src = 'https:' + src
+                elif src.startswith('/'):
+                    parsed_uri = urlparse(target_url)
+                    src = '{uri.scheme}://{uri.netloc}'.format(uri=parsed_uri) + src
+                    
+                if src not in valid_imgs:
+                    valid_imgs.append(src)
+            
+            if valid_imgs:
+                main_img_url = valid_imgs[0] # 가장 먼저 발견된 유효한 큼직한 사진 선택
+                
         except Exception as e:
-            pass
+            pass 
 
         service = Service("/usr/bin/chromedriver") 
         driver = webdriver.Chrome(service=service, options=options)
@@ -154,12 +185,11 @@ def get_data_bulldozer(target_url, max_pages=30):
     return brand_text, "\n".join(review_list)[:30000], main_img_url
 
 # ==========================================
-# [AI 요약 & 동적 프롬프트 로직] 🔥 타겟 선택에 따라 프롬프트가 바뀝니다!
+# [AI 요약 & 동적 프롬프트 로직]
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, content_type):
     status_container.info(f"🧠 (3/3) 제미나이 AI가 '{content_type}' 맞춤형 전략으로 분석 중입니다...")
     
-    # 1. 공통 기본 프롬프트
     base_prompt = f"""
     # Role: 시니어 커머스 전략가 (생활 밀착형 라이프스타일 큐레이터)
     
@@ -194,7 +224,6 @@ def analyze_deep_usp_summarized(brand_text, review_text, content_type):
     ### 🎯 3. 초압축 다각도 후킹 카피 (각 20자 이내, 명사/동사 중심)
     1. **[관리 혁명형]** 2. **[시간 단축형]** 3. **[시각 보정형]** 4. **[피부 공감형]** 5. **[가성비 증명형]** 6. **[상황 저격형]** 7. **[사회적 증거형]** 8. **[손실 방지형]** """
 
-    # 2. 이미지 기획안 전용 파트 (이미지가 포함된 경우에만 추가)
     image_prompt = ""
     if "이미지" in content_type:
         image_prompt = """
@@ -204,7 +233,6 @@ def analyze_deep_usp_summarized(brand_text, review_text, content_type):
     [BEST_COPY]여기에 3번 카피 중 최고점 카피 1개를 20자 이내로 적어주세요[/BEST_COPY]
     """
 
-    # 3. 영상 기획안 전용 파트 (영상이 포함된 경우에만 추가)
     video_prompt = ""
     if "영상" in content_type:
         video_prompt = """
@@ -214,7 +242,6 @@ def analyze_deep_usp_summarized(brand_text, review_text, content_type):
     * **[Action 마무리 (10~15초)]**: (구매 유도)
     """
 
-    # 4. 최종 프롬프트 합체
     final_prompt = base_prompt + image_prompt + video_prompt
 
     try:
@@ -301,7 +328,6 @@ if check_password():
             worker_input = st.text_input("👤 작업자 이름", value="", placeholder="예: 김마케터")
             st.markdown("---")
             
-            # 🔥 콘텐츠 타겟 선택 드롭다운 추가
             content_type_input = st.selectbox("🎬 기획안 타겟 선택", ["이미지+영상", "이미지", "영상"], index=0, help="원하는 매체에 맞춰 최적화된 기획안을 도출합니다.")
             st.markdown("---")
             
@@ -321,14 +347,12 @@ if check_password():
                 with status_container:
                     brand_txt, review_txt, main_img_url = get_data_bulldozer(main_url_input, max_pages_input)
                     
-                    # 프롬프트에 드롭다운 선택값을 전달합니다.
                     raw_report = analyze_deep_usp_summarized(brand_txt, review_txt, content_type_input)
                     
                     best_copy_text = "상품의 매력을 돋보이게 하는 한 줄"
                     clean_report = raw_report
                     ad_img = None
                     
-                    # '이미지'가 포함된 경우에만 합성 로직을 태웁니다.
                     if "이미지" in content_type_input:
                         best_copy_match = re.search(r'\[BEST_COPY\](.*?)\[/BEST_COPY\]', raw_report, re.DOTALL)
                         if best_copy_match:
@@ -343,9 +367,10 @@ if check_password():
                     if len(review_txt) >= 50:
                         wc_img = create_wordcloud_summary(review_txt)
                     
+                    # 🔥 시간/분 형식 완벽 반영: yyyy-mm-dd(aaa) hh:mm
                     now = datetime.datetime.now()
                     weekdays = ['월', '화', '수', '목', '금', '토', '일']
-                    formatted_date = f"{now.strftime('%Y-%m-%d')}({weekdays[now.weekday()]})"
+                    formatted_date = f"{now.strftime('%Y-%m-%d')}({weekdays[now.weekday()]}) {now.strftime('%H:%M')}"
                     now_str = now.strftime("%Y%m%d_%H%M")
                     
                     parsed = urlparse(main_url_input)
@@ -360,7 +385,7 @@ if check_password():
                     st.session_state.filename_base = f"USP_{p_code}_{now_str}"
                     st.session_state.main_url = main_url_input
                     st.session_state.worker_name = worker_input
-                    st.session_state.content_type = content_type_input # 화면 렌더링을 위해 기억
+                    st.session_state.content_type = content_type_input 
                     st.session_state.analyzed = True
                     st.toast("✅ 맞춤형 분석 및 기획 완료!", icon="🎉")
 
@@ -371,7 +396,6 @@ if check_password():
                 st.markdown(st.session_state.final_report)
                 st.text_area("📋 결과 복사하기", st.session_state.final_report, height=400)
 
-            # 🔥 '영상' 전용을 골랐을 때는 이미지 시안 창을 아예 숨깁니다.
             if "이미지" in st.session_state.content_type:
                 ad_expander = st.expander("🖼️ 2. 추천 광고 소재 시안 (실제 상품 이미지 합성)", expanded=True)
                 with ad_expander:
@@ -406,4 +430,4 @@ if check_password():
             if selected_sheet:
                 st.dataframe(spreadsheet.worksheet(selected_sheet).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V10.3 (Smart Targeting)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V10.5</center>", unsafe_allow_html=True)
