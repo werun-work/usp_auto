@@ -83,12 +83,14 @@ def save_to_google_sheet(data_list, worker_name):
             st.error(f"🚨 시트 기록 실패: {e}")
 
 # ==========================================
-# [데이터 수집 엔진] 🔥 진짜 상품 이미지 필터링 로직 추가
+# [데이터 수집 엔진] 🔥 이미지 수집 로직 대폭 수정 (모든 이미지 URL 스캔)
 # ==========================================
 def get_data_bulldozer(target_url, max_pages=30):
     brand_text = ""
     review_list = []
-    main_img_url = "" 
+    
+    # 🔥 [중요] 상세페이지 내의 잠재적인 상품 이미지 URL 리스트를 담을 곳
+    potential_product_imgs = [] 
     
     status_container.info(f"🚀 (1/3) 대상 서버 접속 및 데이터 수집 준비 중...")
     
@@ -102,28 +104,26 @@ def get_data_bulldozer(target_url, max_pages=30):
     options.page_load_strategy = 'eager' 
 
     try:
-        # 🔥 로고 배제 & 진짜 상품 이미지 스캐너
+        # 1. 상세페이지 HTML 스캔 및 모든 이미지 URL 추출 (로고 필터링 1차 진행)
         try:
             res = requests.get(target_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
             soup = BeautifulSoup(res.text, 'html.parser')
             
-            valid_imgs = []
-            
-            # 1. 대표 이미지(og:image) 확인. 단, URL에 'logo'가 없어야 함!
+            # og:image 확인
             og_img = soup.find('meta', property='og:image')
             if og_img and og_img.get('content'):
                 og_src = og_img['content']
-                if 'logo' not in og_src.lower():
-                    valid_imgs.append(og_src)
+                if 'logo' not in og_src.lower(): # 파일명에 logo가 명시된 것만 배제
+                    potential_product_imgs.append(og_src)
                     
-            # 2. 본문에 있는 모든 이미지(img 태그) 뒤지기
+            # 본문에 있는 모든 이미지 img 태그 수집
             for img in soup.find_all('img'):
                 src = img.get('src', '') or img.get('data-src', '')
                 if not src: continue
                 
                 src_lower = src.lower()
-                # 로고, 아이콘, 배너, 버튼, 빈 이미지, gif 등 '잡다한' 요소 싹 필터링
-                if any(x in src_lower for x in ['logo', 'icon', 'banner', 'btn', 'button', '.gif', 'header', 'footer', 'svg', 'blank']):
+                # 로고, 아이콘, 버튼 등 잡다한 요소는 1차적으로 배제 (AI 토큰 낭비 방지)
+                if any(x in src_lower for x in ['logo', 'icon', 'btn', 'button', '.gif', 'blank']):
                     continue
                     
                 # 절대 경로로 변환
@@ -133,11 +133,11 @@ def get_data_bulldozer(target_url, max_pages=30):
                     parsed_uri = urlparse(target_url)
                     src = '{uri.scheme}://{uri.netloc}'.format(uri=parsed_uri) + src
                     
-                if src not in valid_imgs:
-                    valid_imgs.append(src)
+                if src not in potential_product_imgs:
+                    potential_product_imgs.append(src)
             
-            if valid_imgs:
-                main_img_url = valid_imgs[0] # 가장 먼저 발견된 유효한 큼직한 사진 선택
+            # AI에게 넘겨줄 이미지 URL 리스트 갯수 제한 (토큰 용량 문제 방지)
+            potential_product_imgs = potential_product_imgs[:20]
                 
         except Exception as e:
             pass 
@@ -146,7 +146,7 @@ def get_data_bulldozer(target_url, max_pages=30):
         driver = webdriver.Chrome(service=service, options=options)
         driver.set_page_load_timeout(15)
         
-        status_container.info(f"🚀 (1/3) 상세페이지 텍스트 및 대표 이미지 수집 중...")
+        status_container.info(f"🚀 (1/3) 상세페이지 텍스트 수집 중...")
         try:
             driver.get(target_url)
             time.sleep(2)
@@ -182,12 +182,12 @@ def get_data_bulldozer(target_url, max_pages=30):
         try: driver.quit()
         except: pass
         
-    return brand_text, "\n".join(review_list)[:30000], main_img_url
+    return brand_text, "\n".join(review_list)[:30000], potential_product_imgs # 🔥 URL 리스트를 그대로 반환합니다.
 
 # ==========================================
-# [AI 요약 & 동적 프롬프트 로직]
+# [AI 요약 & 이미지 합성 로직] 🔥 V10.6: AI 이미지 선별 로직 도입
 # ==========================================
-def analyze_deep_usp_summarized(brand_text, review_text, content_type):
+def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content_type):
     status_container.info(f"🧠 (3/3) 제미나이 AI가 '{content_type}' 맞춤형 전략으로 분석 중입니다...")
     
     base_prompt = f"""
@@ -224,13 +224,20 @@ def analyze_deep_usp_summarized(brand_text, review_text, content_type):
     ### 🎯 3. 초압축 다각도 후킹 카피 (각 20자 이내, 명사/동사 중심)
     1. **[관리 혁명형]** 2. **[시간 단축형]** 3. **[시각 보정형]** 4. **[피부 공감형]** 5. **[가성비 증명형]** 6. **[상황 저격형]** 7. **[사회적 증거형]** 8. **[손실 방지형]** """
 
+    # 🔥 이미지 기획 프롬프트에 'AI 이미지 선별' 명령어 추가
     image_prompt = ""
     if "이미지" in content_type:
-        image_prompt = """
+        image_prompt = f"""
     ### 💡 4. 소재 제작 기획안 (크리에이티브 한 끗, 구체적으로 묘사)
     * **[메인 레퍼런스 이미지 기획]**: 위 카피 중 성과가 가장 좋을 것으로 예상되는 '생활 밀착형 이미지' 구도 상세 제안
     
+    # [매우 중요] 광고 이미지 시안 제작을 위한 최적의 이미지 URL 선별:
+    아래 [Potential Product Images] 리스트를 확인하고, 로고나 UI 요소가 아닌, **실제 제품이 가장 잘 드러난 사진**의 URL을 딱 하나만 골라주세요. 만약 리스트에 로고밖에 없다면 [SELECTED_IMAGE_URL]None[/SELECTED_IMAGE_URL]이라고 출력하세요.
+    
     [BEST_COPY]여기에 3번 카피 중 최고점 카피 1개를 20자 이내로 적어주세요[/BEST_COPY]
+    
+    [Potential Product Images]
+    {json.dumps(potential_imgs)}
     """
 
     video_prompt = ""
@@ -252,7 +259,7 @@ def analyze_deep_usp_summarized(brand_text, review_text, content_type):
         return f"AI 분석 실패: {e}"
 
 def create_ad_image(img_url, best_copy):
-    if not img_url or not best_copy: 
+    if not img_url or not best_copy or img_url == "None": 
         return None
     try:
         req = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -345,29 +352,43 @@ if check_password():
                 st.warning("⚠️ 이름과 URL을 모두 입력해주세요!")
             else:
                 with status_container:
-                    brand_txt, review_txt, main_img_url = get_data_bulldozer(main_url_input, max_pages_input)
+                    # 🔥 이제 potential_imgs는 URL 리스트를 받아옵니다.
+                    brand_txt, review_txt, potential_imgs = get_data_bulldozer(main_url_input, max_pages_input)
                     
-                    raw_report = analyze_deep_usp_summarized(brand_txt, review_txt, content_type_input)
+                    # 🔥 AI 분석 함수에 이미지 URL 리스트를 함께 넘겨줍니다.
+                    raw_report = analyze_deep_usp_summarized(brand_txt, review_txt, potential_imgs, content_type_input)
                     
                     best_copy_text = "상품의 매력을 돋보이게 하는 한 줄"
+                    selected_img_url = None
                     clean_report = raw_report
                     ad_img = None
                     
+                    # '이미지'가 포함된 경우에만 합성 로직을 태웁니다.
                     if "이미지" in content_type_input:
+                        # BEST_COPY 추출
                         best_copy_match = re.search(r'\[BEST_COPY\](.*?)\[/BEST_COPY\]', raw_report, re.DOTALL)
                         if best_copy_match:
                             best_copy_text = best_copy_match.group(1).strip()
-                            clean_report = re.sub(r'\[BEST_COPY\].*?\[/BEST_COPY\]', '', raw_report, flags=re.DOTALL).strip()
                         
-                        if main_img_url:
-                            status_container.info("🎨 실제 상품 이미지 기반 광고 시안(썸네일) 합성 중...")
-                            ad_img = create_ad_image(main_img_url, best_copy_text)
+                        # 🔥 AI가 선별한 SELECTED_IMAGE_URL 추출 (프롬프트에서 출력하도록 수정함)
+                        selected_img_match = re.search(r'\[SELECTED_IMAGE_URL\](.*?)\[/SELECTED_IMAGE_URL\]', raw_report, re.DOTALL)
+                        if selected_img_match:
+                            selected_img_url = selected_img_match.group(1).strip()
+                            
+                        # 레포트에서 태그 싹 정리
+                        clean_report = re.sub(r'\[BEST_COPY\].*?\[/BEST_COPY\]', '', raw_report, flags=re.DOTALL)
+                        clean_report = re.sub(r'\[SELECTED_IMAGE_URL\].*?\[/SELECTED_IMAGE_URL\]', '', clean_report, flags=re.DOTALL).strip()
+                        
+                        # 🔥 AI가 선별한 이미지에 카피 합성 (로고 원천 차단!)
+                        if selected_img_url:
+                            status_container.info("🎨 AI가 선별한 상품 이미지에 추천 카피 합성 중...")
+                            ad_img = create_ad_image(selected_img_url, best_copy_text)
 
                     wc_img = None
                     if len(review_txt) >= 50:
                         wc_img = create_wordcloud_summary(review_txt)
                     
-                    # 🔥 시간/분 형식 완벽 반영: yyyy-mm-dd(aaa) hh:mm
+                    # 🔥 요청하신 시간/분 형식 완벽 반영: yyyy-mm-dd(화) hh:mm
                     now = datetime.datetime.now()
                     weekdays = ['월', '화', '수', '목', '금', '토', '일']
                     formatted_date = f"{now.strftime('%Y-%m-%d')}({weekdays[now.weekday()]}) {now.strftime('%H:%M')}"
@@ -403,7 +424,7 @@ if check_password():
                         st.image(st.session_state.ad_img, caption="AI 추천 카피 자동 합성본")
                         st.download_button("💾 광고 시안(.png) 다운로드", data=st.session_state.ad_img, file_name=f"AD_{st.session_state.filename_base}.png", mime="image/png")
                     else:
-                        st.warning("상세페이지에서 적합한 메인 이미지를 추출하지 못해 시안 합성이 생략되었습니다.")
+                        st.warning("상세페이지에서 적합한 메인 이미지를 선별하지 못해 시안 합성이 생략되었습니다.")
 
             wordcloud_expander = st.expander("☁️ 3. 리뷰 키워드 워드클라우드", expanded=True)
             with wordcloud_expander:
@@ -430,4 +451,4 @@ if check_password():
             if selected_sheet:
                 st.dataframe(spreadsheet.worksheet(selected_sheet).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V10.5</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V10.6</center>", unsafe_allow_html=True)
