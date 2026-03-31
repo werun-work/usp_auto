@@ -81,7 +81,7 @@ def save_to_google_sheet(data_list, worker_name):
             st.error(f"🚨 시트 기록 실패: {e}")
 
 # ==========================================
-# [데이터 수집 엔진] 🔥 멀티 사이트 대응 버전
+# [데이터 수집 엔진]
 # ==========================================
 def get_data_bulldozer(target_url, max_pages=30):
     brand_text = ""
@@ -101,16 +101,12 @@ def get_data_bulldozer(target_url, max_pages=30):
         driver = webdriver.Chrome(service=service, options=options)
         driver.set_page_load_timeout(20)
         
-        # 1. 상세페이지 수집
         status_container.info(f"🚀 (1/3) 상세페이지 설명 수집 중...")
         driver.get(target_url)
         time.sleep(3)
         brand_text = driver.find_element(By.TAG_NAME, 'body').text.strip()[:5000]
 
-        # 2. 리뷰 수집 (사이트별 분기 처리)
         status_container.info(f"🤖 (2/3) 리뷰 수집 경로 분석 및 추출 중...")
-        
-        # 젝시믹스 전용 (Crema 솔루션)
         if "xexymix.com" in target_url:
             parsed = urlparse(target_url)
             product_code = parse_qs(parsed.query).get('branduid', [''])[0]
@@ -122,13 +118,8 @@ def get_data_bulldozer(target_url, max_pages=30):
                     content = driver.find_element(By.TAG_NAME, 'body').text.strip()
                     if len(content) < 50: break
                     review_list.append(content)
-        
-        # 안다르 및 일반 사이트 (스크롤 방식/기본 텍스트 수집)
         else:
-            # 안다르 등 일반 사이트는 페이지 내에 리뷰가 이미 로드되어 있거나 
-            # 버튼을 눌러야 하므로 현재 페이지의 텍스트를 최대한 긁어옵니다.
-            # (전문적인 크롤링은 사이트별 셀렉터가 필요하나, 우선 범용 텍스트 분석으로 대응)
-            review_list.append(brand_text[1000:4000]) # 리뷰 대용으로 상세페이지 하단 텍스트 일부 활용
+            review_list.append(brand_text[1000:4000])
             
     except Exception as e:
         status_container.error(f"⚠️ 수집 중 오류: {e}")
@@ -138,31 +129,50 @@ def get_data_bulldozer(target_url, max_pages=30):
     return brand_text, "\n".join(review_list)[:30000]
 
 # ==========================================
-# [AI 요약] 
+# [AI 요약] 🔥 V10.0: 시니어 커머스 전략가 (숏폼 영상 및 소재 기획 추가)
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text):
-    status_container.info("🧠 (3/3) 제미나이 AI가 'USP 고도화' 커머스 전략으로 분석 중입니다...")
+    status_container.info("🧠 (3/3) 제미나이 AI가 '생활 밀착형 USP 고도화' 전략으로 분석 중입니다...")
     prompt = f"""
-    # Role: 데이터 기반의 초개인화 커머스 전략가 (USP 고도화 카피라이팅 전문가)
-    # Context: 상세페이지의 기술적 스펙을 고객의 '라이프스타일 이익'으로 치환하여 클릭률(CTR)을 200% 이상 개선하는 것이 목표
+    # Role: 시니어 커머스 전략가 (생활 밀착형 라이프스타일 큐레이터)
+    # Task: 상세페이지와 리뷰를 분석하여, 중복되지 않는 5가지 관점의 '생활 밀착형 USP'와 '명사/동사 중심' 후킹 카피 추출 및 광고 소재 기획
+
+    # 분석 가이드라인 (USP 고도화 Logic):
+    1. 소구점 다각화 (Zero Redundancy): '편안함' 하나에만 매몰되지 않는다. [관리(세탁/다림질), 핏(보정/실루엣), 촉감(피부저자극), 내구성(변형무), 상황(출근/육아/운동)]의 5가지 축으로 USP를 분산 추출한다.
+    2. 생활 밀착 (Real Life): "다림질 생략", "세탁기 직행", "건조기 생존" 등 사용자가 제품을 '관리하고 유지하는 과정'에서의 이득을 반드시 포함한다.
+    3. 언어의 직관성 (Short & Punchy): 모든 카피는 20자 이내, '명사' 혹은 '동사'로 종결하여 이미지로 즉각 각인시킨다.
+
+    ---
+    # Input Data:
+    [상세페이지 텍스트]
+    {brand_text}
+    
+    [고객 리뷰 데이터 전량]
+    {review_text if len(review_text) > 50 else "현재 수집된 리뷰 데이터가 없습니다."}
+    ---
 
     # Output Format:
-    ### 🏢 1. 브랜드 기획 의도 & '한 끗'의 차이
-    * **해결하고자 하는 결핍**: 
-    * **독보적 기술 스펙**: 
-    * **치환된 고객 이익**: 
+    (주의: 각 항목의 설명 문구나 가이드라인은 제외하고 최종 결과 텍스트만 깔끔하게 출력하세요. 수집된 리뷰가 없을 경우 '수집된 리뷰 없음'으로 명시하고 상세페이지 기준으로 유추하여 기획하세요.)
 
-    ### 🗣️ 2. 고객의 진짜 목소리 (Deep Review Analysis)
-    * **[Unspoken Pain]**: 
-    * **[Moment of Wow]**: 
-    * **[New Usage]**: 
+    ### 🏢 1. 5대 다각도 핵심 USP (경험 중심)
+    1. **[관리/유지]**: 
+    2. **[시각적 핏]**: 
+    3. **[물성/촉감]**: 
+    4. **[내구성]**: 
+    5. **[상황 확산]**: 
 
-    ### 🎯 3. USP 고도화 다각도 후킹 카피 (8가지 앵글, 각 20자 이내)
-    1. **[문제 저격형]** 2. **[TPO 특정형]** 3. **[비교 우위형]** 4. **[데이터 증명형]** 5. **[자존감 고취형]** 6. **[관리 편의형]** 7. **[리뷰 워딩형]** 8. **[손실 강조형]** ### 🖼️ 4. 비주얼 훅(Visual Hook) 제안
-    * ---
-    [데이터]
-    {brand_text}
-    {review_text if len(review_text) > 50 else "리뷰 데이터 부족 (상세페이지 기반 분석)"}
+    ### 🗣️ 2. 고객의 '진짜 생활' 리뷰 (Pain-Point 중심)
+    * **[생활 밀착 키워드 Top 5]**: 
+    * **[고객의 한 마디]**: 
+
+    ### 🎯 3. 초압축 다각도 후킹 카피 (명사/동사 중심)
+    1. **[관리 혁명형]** 2. **[시간 단축형]** 3. **[시각 보정형]** 4. **[피부 공감형]** 5. **[가성비 증명형]** 6. **[상황 저격형]** 7. **[사회적 증거형]** 8. **[손실 방지형]** ### 💡 4. 소재 제작 기획안 (크리에이티브 한 끗)
+    * **[메인 레퍼런스 이미지 기획]**: 위 카피 중 성과가 가장 좋을 것으로 예상되는 '생활 밀착형 이미지' 구도 1가지 제안 (어떤 모델이 어떤 상황에서 무엇을 하고 있는지 구체적으로 시각화)
+    
+    ### 🎬 5. 숏폼 영상 기획안 (6초~15초)
+    * **[초반 Hook (0~3초)]**: 시선을 끄는 문제 제기 또는 극적인 상황
+    * **[Body 전개 (3~10초)]**: 제품으로 해결되는 극적인 대비(Before/After) 또는 생활 밀착형 솔루션 시연
+    * **[Action 마무리 (10~15초)]**: 구매 유도(CTA) 및 직관적 카피 마무리지기
     """
     try:
         client = genai.Client(api_key=MY_GEMINI_API_KEY)
@@ -170,6 +180,33 @@ def analyze_deep_usp_summarized(brand_text, review_text):
         return response.text
     except Exception as e:
         return f"AI 분석 실패: {e}"
+
+def create_wordcloud_summary(review_text):
+    try:
+        wc_prompt = f"다음 대량의 리뷰에서 가장 중요한 제품 관련 키워드 100개만 뽑아서 나열해줘.\n{review_text[:8000]}"
+        client = genai.Client(api_key=MY_GEMINI_API_KEY)
+        keywords = client.models.generate_content(model='gemini-2.5-flash', contents=wc_prompt).text
+        
+        font_path = "NanumGothic.ttf"
+        if not os.path.exists(font_path):
+            urllib.request.urlretrieve("https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf", font_path)
+        
+        wordcloud = WordCloud(
+            font_path=font_path, width=800, height=800, 
+            background_color='white', colormap='magma'
+        ).generate(keywords)
+        
+        img_buffer = io.BytesIO()
+        plt.figure(figsize=(8, 8))
+        plt.imshow(wordcloud, interpolation='bilinear')
+        plt.axis('off')
+        plt.savefig(img_buffer, format='png', bbox_inches='tight')
+        plt.close()
+        
+        return img_buffer.getvalue()
+    except Exception as e:
+        status_container.warning(f"⚠️ 워드클라우드 생성 실패: {e}")
+        return None
 
 # ==========================================
 # [실제 화면 렌더링] 
@@ -208,11 +245,17 @@ if check_password():
                     brand_txt, review_txt = get_data_bulldozer(main_url_input, max_pages_input)
                     report = analyze_deep_usp_summarized(brand_txt, review_txt)
                     
+                    if len(review_txt) < 50:
+                        img = None
+                        st.info("💡 리뷰가 없는 상품이라 워드클라우드 이미지는 생략합니다.")
+                    else:
+                        img = create_wordcloud_summary(review_txt)
+                    
                     now = datetime.datetime.now()
                     weekdays = ['월', '화', '수', '목', '금', '토', '일']
                     formatted_date = f"{now.strftime('%Y-%m-%d')}({weekdays[now.weekday()]})"
+                    now_str = now.strftime("%Y%m%d_%H%M")
                     
-                    # 상품 코드 추출 (젝시믹스 branduid / 안다르 product_no 등 범용)
                     parsed = urlparse(main_url_input)
                     qs = parse_qs(parsed.query)
                     p_code = qs.get('branduid', qs.get('product_no', ['UNKNOWN']))[0]
@@ -220,12 +263,45 @@ if check_password():
                     save_to_google_sheet([formatted_date, p_code, main_url_input, report], worker_input)
                     
                     st.session_state.final_report = report
+                    st.session_state.wc_img = img
+                    st.session_state.filename_base = f"USP_{p_code}_{now_str}"
+                    st.session_state.main_url = main_url_input
+                    st.session_state.worker_name = worker_input
                     st.session_state.analyzed = True
                     st.toast("✅ 분석 완료!", icon="🎉")
 
         if st.session_state.analyzed:
             st.markdown("---")
-            st.markdown(st.session_state.final_report)
+            result_expander = st.expander("📝 1. AI 마케팅 기획안 & 카피 (클릭하여 열기)", expanded=True)
+            with result_expander:
+                st.markdown(st.session_state.final_report)
+                st.text_area("📋 결과 복사하기", st.session_state.final_report, height=400)
+
+            wordcloud_expander = st.expander("☁️ 2. 리뷰 키워드 워드클라우드", expanded=True)
+            with wordcloud_expander:
+                if st.session_state.wc_img:
+                    st.image(st.session_state.wc_img, caption="리뷰 핵심 키워드")
+                else:
+                    st.markdown("수집된 리뷰가 없어 워드클라우드를 제공하지 않습니다.")
+            
+            col4, col5 = st.columns([1, 1])
+            with col4:
+                st.download_button(
+                    label="💾 기획안(.txt) 다운로드",
+                    data=f"분석 대상: {st.session_state.main_url}\n작업자: {st.session_state.worker_name}\n==========================\n\n{st.session_state.final_report}",
+                    file_name=f"{st.session_state.filename_base}.txt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+            with col5:
+                if st.session_state.wc_img:
+                    st.download_button(
+                        label="💾 워드클라우드(.png) 다운로드",
+                        data=st.session_state.wc_img,
+                        file_name=f"{st.session_state.filename_base}.png",
+                        mime="image/png",
+                        use_container_width=True
+                    )
 
     with tab2:
         st.header("📋 과거 분석 히스토리")
@@ -236,4 +312,4 @@ if check_password():
             if selected_sheet:
                 st.dataframe(spreadsheet.worksheet(selected_sheet).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V9.8 (Multi-Engine)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V10.0 (Masterpiece)</center>", unsafe_allow_html=True)
