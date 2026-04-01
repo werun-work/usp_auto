@@ -76,19 +76,21 @@ def save_to_google_sheet(data_list, worker_name):
             try:
                 worksheet = spreadsheet.worksheet(worker_name)
             except gspread.WorksheetNotFound:
+                # 🔥 새 탭 생성 시 헤더에 '상품명' 추가
                 worksheet = spreadsheet.add_worksheet(title=worker_name, rows="100", cols="10")
-                worksheet.append_row(["날짜", "상품코드", "URL", "분석결과"])
+                worksheet.append_row(["날짜", "상품명", "상품코드", "URL", "분석결과"])
             worksheet.append_row(data_list)
         except Exception as e:
             st.error(f"🚨 시트 기록 실패: {e}")
 
 # ==========================================
-# [데이터 수집 엔진] 
+# [데이터 수집 엔진] 🔥 상품명(Title) 추출 로직 추가
 # ==========================================
 def get_data_bulldozer(target_url, max_pages=30):
     brand_text = ""
     review_list = []
     potential_product_imgs = [] 
+    product_name = "상품명 수집 불가" # 기본값 설정
     
     status_container.info(f"🚀 (1/3) 대상 서버 접속 및 데이터 수집 준비 중...")
     
@@ -106,6 +108,16 @@ def get_data_bulldozer(target_url, max_pages=30):
             res = requests.get(target_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
             soup = BeautifulSoup(res.text, 'html.parser')
             
+            # 🔥 1. 상품명 추출 (og:title 우선, 없으면 <title> 태그)
+            og_title = soup.find('meta', property='og:title')
+            if og_title and og_title.get('content'):
+                product_name = og_title['content'].strip()
+            else:
+                title_tag = soup.find('title')
+                if title_tag:
+                    product_name = title_tag.text.strip()
+            
+            # 2. 이미지 선별 로직
             og_img = soup.find('meta', property='og:image')
             if og_img and og_img.get('content'):
                 og_src = og_img['content']
@@ -138,10 +150,13 @@ def get_data_bulldozer(target_url, max_pages=30):
         driver = webdriver.Chrome(service=service, options=options)
         driver.set_page_load_timeout(15)
         
-        status_container.info(f"🚀 (1/3) 상세페이지 텍스트 수집 중...")
+        status_container.info(f"🚀 (1/3) 상세페이지 텍스트 및 상품명 수집 중...")
         try:
             driver.get(target_url)
             time.sleep(2)
+            # requests로 상품명 수집을 실패했을 경우, 브라우저 탭 이름으로 다시 시도
+            if product_name == "상품명 수집 불가" or not product_name:
+                product_name = driver.title
         except:
             try: driver.execute_script("window.stop();") 
             except: pass
@@ -174,15 +189,14 @@ def get_data_bulldozer(target_url, max_pages=30):
         try: driver.quit()
         except: pass
         
-    return brand_text, "\n".join(review_list)[:30000], potential_product_imgs 
+    return brand_text, "\n".join(review_list)[:30000], potential_product_imgs, product_name 
 
 # ==========================================
-# [AI 요약 & 동적 프롬프트 로직] 🔥 카피라이팅 스타일 옵션 반영
+# [AI 요약 & 동적 프롬프트 로직]
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content_type, copy_style):
     status_container.info(f"🧠 (3/3) 제미나이 AI가 선택하신 옵션에 맞춰 맞춤형 기획안을 작성 중입니다...")
     
-    # 🔥 스타일에 따른 프롬프트 동적 제어
     if "명사/동사" in copy_style:
         style_guide = "모든 카피는 20자 이내로, '명사' 혹은 '동사'로 종결하여 이미지로 즉각 각인시킬 것."
         copy_title = "### 🎯 3. 초압축 다각도 후킹 카피 (각 20자 이내, 명사/동사 종결)"
@@ -242,7 +256,6 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
 
     video_prompt = ""
     if "영상" in content_type:
-        # 영상이 포함될 경우 번호 매기기를 5번 또는 4번으로 유동적 조절
         video_num = "5" if "이미지" in content_type else "4"
         video_prompt = f"""
     ### 🎬 {video_num}. 숏폼 영상 기획안 (6초~15초 콘티)
@@ -361,9 +374,7 @@ if check_password():
             st.markdown("---")
             
             content_type_input = st.selectbox("🎬 기획안 타겟 선택", ["이미지+영상", "이미지", "영상"], index=0)
-            
-            # 🔥 카피라이팅 스타일 선택 드롭다운 추가
-            copy_style_input = st.selectbox("✍️ 카피라이팅 스타일", ["명사/동사 중심 (임팩트형)", "자유 형식 (자연스러운 서술형)"], index=0, help="카피의 어투를 결정합니다.")
+            copy_style_input = st.selectbox("✍️ 카피라이팅 스타일", ["명사/동사 중심 (임팩트형)", "자유 형식 (자연스러운 서술형)"], index=0)
             st.markdown("---")
             
             main_url_input = st.text_input("🔗 분석할 상품 URL", value="", placeholder="URL을 입력하세요")
@@ -380,9 +391,9 @@ if check_password():
                 st.warning("⚠️ 이름과 URL을 모두 입력해주세요!")
             else:
                 with status_container:
-                    brand_txt, review_txt, potential_imgs = get_data_bulldozer(main_url_input, max_pages_input)
+                    # 🔥 상품명(product_name) 반환 추가
+                    brand_txt, review_txt, potential_imgs, product_name = get_data_bulldozer(main_url_input, max_pages_input)
                     
-                    # 🔥 선택한 카피라이팅 스타일을 AI 함수에 전달
                     raw_report = analyze_deep_usp_summarized(brand_txt, review_txt, potential_imgs, content_type_input, copy_style_input)
                     
                     main_copy_text = ""
@@ -414,7 +425,6 @@ if check_password():
                     if len(review_txt) >= 50:
                         wc_img = create_wordcloud_summary(review_txt)
                     
-                    # 🔥 KST (한국 표준시) 완벽 적용
                     kst_now = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
                     weekdays = ['월', '화', '수', '목', '금', '토', '일']
                     formatted_date = f"{kst_now.strftime('%Y-%m-%d')}({weekdays[kst_now.weekday()]}) {kst_now.strftime('%H:%M')}"
@@ -424,7 +434,8 @@ if check_password():
                     qs = parse_qs(parsed.query)
                     p_code = qs.get('branduid', qs.get('product_no', ['UNKNOWN']))[0]
                     
-                    save_to_google_sheet([formatted_date, p_code, main_url_input, clean_report], worker_input)
+                    # 🔥 구글 시트에 상품명(product_name) 적재 추가
+                    save_to_google_sheet([formatted_date, product_name, p_code, main_url_input, clean_report], worker_input)
                     
                     st.session_state.final_report = clean_report
                     st.session_state.wc_img = wc_img
@@ -476,6 +487,13 @@ if check_password():
             worksheets = spreadsheet.worksheets()
             selected_sheet = st.selectbox("📂 조회할 작업자 탭 선택", [ws.title for ws in worksheets])
             if selected_sheet:
-                st.dataframe(spreadsheet.worksheet(selected_sheet).get_all_records(), use_container_width=True)
+                try:
+                    data = spreadsheet.worksheet(selected_sheet).get_all_records()
+                    if data:
+                        st.dataframe(data, use_container_width=True)
+                    else:
+                        st.info(f"[{selected_sheet}] 탭에 아직 저장된 분석 내역이 없습니다.")
+                except Exception as e:
+                    st.warning(f"💡 [{selected_sheet}] 탭은 비어있거나 첫 줄(제목 행)이 없어서 표를 만들 수 없습니다. 새로운 분석을 1회 진행하시면 자동으로 채워집니다!")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V10.8 (Copy Style Dynamics)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V11.0</center>", unsafe_allow_html=True)
