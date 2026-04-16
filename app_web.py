@@ -1,4 +1,4 @@
-"import streamlit as st
+import streamlit as st
 import time
 import requests
 import urllib.parse
@@ -498,4 +498,4 @@ if check_password():
                 except Exception as e:
                     st.warning(f""💡 [{selected_sheet}] 탭은 비어있거나 첫 줄(제목 행)이 없어서 표를 만들 수 없습니다. 새로운 분석을 1회 진행하시면 자동으로 채워집니다!"")
 
-    st.markdown(""<br><center>마케팅 자동화 솔루션 | Internal Tool V11.1</center>"", unsafe_allow_html=True)"
+    st.markdown(""<br><center>마케팅 자동화 솔루션 | Internal Tool V11.1</center>"", unsafe_allow_html=True)
