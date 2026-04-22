@@ -193,7 +193,7 @@ def get_data_bulldozer(target_url, max_pages=10):
     return brand_text, "\n".join(review_list)[:30000], potential_product_imgs, product_name 
 
 # ==========================================
-# [AI 요약 엔진] 🔥 퓨샷 프롬프팅 (하드코딩 + 유저 입력 믹스)
+# [AI 요약 엔진] 🔥 진짜 에러 원인 표출 로직 적용
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content_type, copy_style, product_url, product_name, user_ref_copy):
     status_container.info(f"🧠 (3/3) 제미나이 AI가 핵심 USP를 압축하여 기획안을 작성 중입니다...")
@@ -205,7 +205,6 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
         style_guide = "모든 카피는 20자 이내로, 타겟 고객이 친근하게 느낄 수 있는 자연스러운 서술형(문장형)으로 자유롭게 작성할 것."
         copy_title = "### 🎯 3. 초압축 다각도 후킹 카피 (각 20자 이내, 자연스러운 자유 형식)"
     
-    # 🔥 [하드코딩] 브랜드 톤앤매너를 잡아주는 기본 베스트 카피
     ref_section = """
     [자사 베스트 카피 레퍼런스 (기본 톤앤매너)]
     - 입는 순간 -5kg, 마법의 슬림핏
@@ -215,7 +214,6 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
     - 작년꺼 또 입어요..? 셔링 디테일로 핏이 달라지는
     """
     
-    # 🔥 [유저 입력] 마케터가 사이드바에 입력한 카피가 있다면 최우선 적용
     if user_ref_copy.strip():
         ref_section += f"\n[이번 캠페인 맞춤형 레퍼런스 카피 (최우선 반영)]\n{user_ref_copy}\n-> AI는 위 맞춤형 레퍼런스의 '말투, 결, 느낌'을 최우선으로 모방하여 아래 3번 카피를 작성할 것."
 
@@ -294,6 +292,7 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
 
     fallback_models = ['gemini-2.5-flash', 'gemini-1.5-flash']
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
+    last_error = ""
     
     for model_name in fallback_models:
         for attempt in range(2): 
@@ -304,15 +303,23 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
                 return response.text
             except Exception as e:
                 error_msg = str(e)
+                last_error = error_msg
+                
+                # 진짜 에러의 종류를 판별하여 그대로 뱉어냅니다!
                 if "503" in error_msg or "high demand" in error_msg:
                     time.sleep(2)
                     continue
+                elif "429" in error_msg or "quota" in error_msg.lower():
+                    return f"🚨 **[에러 429: API 한도 초과]** 구글 결제 계정이 정상적으로 연동되지 않았거나, 무료 제공량을 모두 소진했습니다. 새로운 VIP API 키가 Streamlit Secrets에 제대로 저장 및 Reboot 되었는지 확인해주세요.\n(상세 에러: {error_msg})"
+                elif "400" in error_msg:
+                    return f"🚨 **[에러 400: 잘못된 요청]** 수집된 리뷰 텍스트가 너무 길거나 이미지 데이터 처리에 문제가 생겼습니다. 수집 페이지 수를 10페이지 이하로 줄여서 다시 시도해주세요.\n(상세 에러: {error_msg})"
                 else:
                     break 
-    return "🚨 **모든 AI 서버가 현재 폭주 상태입니다.** 서버 트래픽이 안정된 후 다시 시도해주세요."
+                    
+    return f"🚨 **분석 실패:** 지속적인 서버 폭주이거나, 확인할 수 없는 에러가 발생했습니다.\n👉 **실제 에러 내용:** `{last_error}`"
 
 # ==========================================
-# [추가 카피 무한 생성기] 🔥 레퍼런스 카피 연동
+# [추가 카피 무한 생성기]
 # ==========================================
 def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     if "명사/동사" in copy_style:
@@ -477,7 +484,6 @@ if check_password():
             content_type_input = st.selectbox("🎬 기획안 타겟 선택", ["이미지+영상", "이미지", "영상", "USP만 추출 (기획안 제외)"], index=3)
             copy_style_input = st.selectbox("✍️ 카피라이팅 스타일", ["명사/동사 중심 (임팩트형)", "자유 형식 (자연스러운 서술형)"], index=1)
             
-            # 🔥 하이브리드 카피 엔진: 사용자 직접 입력 옵션
             user_ref_input = st.text_area("📝 캠페인 레퍼런스 카피 (선택사항)", placeholder="최근 터진 카피나 비슷한 무드의 카피를 넣어주시면 AI가 그 '결'을 모방합니다.\n(예: 입는 순간 -5kg 마법의 슬림핏)", height=100)
             st.markdown("---")
             
@@ -577,7 +583,6 @@ if check_password():
                     if st.button("➕ 카피 8개 추가", use_container_width=True):
                         if extra_req:
                             with st.spinner("AI가 마케터님의 의도를 반영하여 새로운 카피를 뽑는 중..."):
-                                # 추가 추출에도 유저 레퍼런스를 넘겨줍니다!
                                 new_copies = generate_extra_copies(st.session_state.final_report, extra_req, st.session_state.copy_style, st.session_state.user_ref_copy)
                                 st.session_state.extra_copies.insert(0, {"req": extra_req, "result": new_copies})
                         else:
@@ -636,4 +641,4 @@ if check_password():
                 except Exception as e:
                     st.warning(f"💡 [{selected_sheet}] 탭은 비어있거나 첫 줄(제목 행)이 없어서 표를 만들 수 없습니다. 새로운 분석을 1회 진행하시면 자동으로 채워집니다!")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V12.1 (Hybrid Copy Engine)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V12.2 (Debug Mode)</center>", unsafe_allow_html=True)
