@@ -187,7 +187,7 @@ def get_data_bulldozer(target_url, max_pages=10):
     return brand_text, "\n".join(review_list)[:30000], potential_product_imgs, product_name 
 
 # ==========================================
-# [AI 요약 엔진] 
+# [AI 요약 엔진] 🔥 모델 이름 404 에러 수정
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content_type, copy_style, product_url, product_name, user_ref_copy):
     status_container.info(f"🧠 (3/3) 제미나이 AI가 핵심 USP를 압축하여 기획안을 작성 중입니다...")
@@ -274,14 +274,15 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
 
     final_prompt = base_prompt + image_prompt + video_prompt
 
-    fallback_models = ['gemini-2.5-flash', 'gemini-1.5-flash']
+    # 🔥 모델 이름을 구글의 최신 정식 명칭으로 변경
+    fallback_models = ['gemini-2.5-pro-preview-0409', 'gemini-1.5-pro-latest']
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
     last_error = ""
     
     for model_name in fallback_models:
         for attempt in range(2): 
             try:
-                if attempt > 0 or model_name == 'gemini-1.5-flash':
+                if attempt > 0 or model_name == 'gemini-1.5-pro-latest':
                     status_container.warning(f"⚠️ 메인 서버 혼잡으로 예비 서버({model_name})로 우회 재시도 중...")
                 response = client.models.generate_content(model=model_name, contents=final_prompt)
                 return response.text
@@ -295,7 +296,7 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
     return f"🚨 **분석 실패:** 지속적인 서버 폭주이거나, 확인할 수 없는 에러가 발생했습니다.\n👉 **실제 에러 내용:** `{last_error}`"
 
 # ==========================================
-# [추가 카피 생성기] 
+# [추가 카피 생성기] 🔥 모델 이름 404 에러 수정
 # ==========================================
 def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     if "명사/동사" in copy_style:
@@ -322,7 +323,7 @@ def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     
     결과는 1. 2. 3. 번호만 매겨서 깔끔하게 출력해주세요. 절대 부연 설명을 달지 마세요.
     """
-    fallback_models = ['gemini-2.5-flash', 'gemini-1.5-flash']
+    fallback_models = ['gemini-2.5-pro-preview-0409', 'gemini-1.5-pro-latest']
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
     for model_name in fallback_models:
         for attempt in range(2):
@@ -335,7 +336,7 @@ def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     return "🚨 서버 지연으로 추가 카피 생성에 실패했습니다. 다시 시도해주세요."
 
 # ==========================================
-# [이미지 합성 로직] 🔥 기존 텍스트 덮기 & 로고 퀄리티업
+# [이미지 합성 로직] 
 # ==========================================
 def create_ad_image(img_source, main_copy, sub_copy, product_url, is_file=False):
     try:
@@ -355,11 +356,10 @@ def create_ad_image(img_source, main_copy, sub_copy, product_url, is_file=False)
         overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         
-        # 🔥 기존 글자를 덮기 위한 매우 짙은 그라데이션 (Opacity Max 240)
         box_top = int(h_size * 0.40)
         for y in range(box_top, h_size):
             progress = (y - box_top) / (h_size - box_top)
-            alpha = int(240 * (progress ** 0.5)) # 빠르게 어두워지게 곡선 적용
+            alpha = int(240 * (progress ** 0.5)) 
             draw.line([(0, y), (base_width, y)], fill=(0, 0, 0, alpha))
         
         img = Image.alpha_composite(img, overlay)
@@ -376,7 +376,6 @@ def create_ad_image(img_source, main_copy, sub_copy, product_url, is_file=False)
         font_sub = ImageFont.truetype(font_r_path, 50)
         font_logo = ImageFont.truetype(font_b_path, 35)
         
-        # 🔥 좌측 상단 로고 (그림자 추가로 시인성 확보)
         draw.text((52, 52), "X E X Y M I X", font=font_logo, fill=(0, 0, 0, 150))
         draw.text((50, 50), "X E X Y M I X", font=font_logo, fill=(255, 255, 255, 255))
 
@@ -402,7 +401,7 @@ def create_ad_image(img_source, main_copy, sub_copy, product_url, is_file=False)
         return None
 
 # ==========================================
-# [워드클라우드 로직] 🔥 삭제되었던 로직 완벽 복구
+# [워드클라우드 로직] 🔥 모델 이름 404 에러 수정
 # ==========================================
 def create_wordcloud_summary(review_text):
     try:
@@ -410,7 +409,7 @@ def create_wordcloud_summary(review_text):
         wc_prompt = f"다음 대량의 리뷰에서 가장 많이 언급된 제품 장점 및 추천 키워드(명사형) 100개만 추출해서 콤마(,)로만 구분해서 출력해.\n{review_text[:8000]}"
         client = genai.Client(api_key=MY_GEMINI_API_KEY)
         
-        fallback_models = ['gemini-2.5-flash', 'gemini-1.5-flash']
+        fallback_models = ['gemini-2.5-pro-preview-0409', 'gemini-1.5-pro-latest']
         keywords = ""
         for model_name in fallback_models:
             for attempt in range(2):
@@ -428,7 +427,6 @@ def create_wordcloud_summary(review_text):
         if not os.path.exists(font_path):
             urllib.request.urlretrieve("https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf", font_path)
         
-        # 크기 축소 및 컬러맵 적용
         wordcloud = WordCloud(
             font_path=font_path, width=600, height=400, 
             background_color='white', colormap='tab10', 
@@ -486,7 +484,6 @@ if check_password():
                 st.warning("⚠️ 이름과 URL을 모두 입력해주세요!")
             else:
                 with status_container:
-                    # 세션 초기화
                     st.session_state.extra_copies = []
                     st.session_state.ad_img = None
                     st.session_state.final_compiled_text = ""
@@ -498,7 +495,6 @@ if check_password():
                         st.session_state.main_report_text = raw_report
                         st.session_state.analyzed = True
                     else:
-                        # 테이블 분리 추출
                         ad_plan_match = re.search(r'\[AD_PLAN_START\](.*?)\[AD_PLAN_END\]', raw_report, re.DOTALL)
                         if ad_plan_match:
                             st.session_state.ad_plan_text = ad_plan_match.group(1).strip()
@@ -507,15 +503,12 @@ if check_password():
                             st.session_state.ad_plan_text = "기획안을 추출하지 못했습니다. (USP만 추출 모드)"
                             clean_report = raw_report.strip()
 
-                        # 이미지 URL 추출
                         selected_img_match = re.search(r'\[SELECTED_IMAGE_URL\](.*?)\[/SELECTED_IMAGE_URL\]', clean_report, re.DOTALL)
                         if selected_img_match:
                             st.session_state.extracted_img_url = selected_img_match.group(1).strip()
                             clean_report = re.sub(r'\[SELECTED_IMAGE_URL\].*?\[/SELECTED_IMAGE_URL\]', '', clean_report, flags=re.DOTALL).strip()
                         
                         st.session_state.main_report_text = clean_report
-                        
-                        # 🔥 이 부분에서 복구된 워드클라우드 함수 호출
                         st.session_state.wc_img = create_wordcloud_summary(review_txt) if len(review_txt) >= 50 else None
                         
                         kst_now = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
@@ -536,17 +529,11 @@ if check_password():
                         st.session_state.analyzed = True
                         st.toast("✅ 맞춤형 분석 완료!", icon="🎉")
 
-        # ==========================================
-        # 워크플로우 1: 메인 기획안 확인
-        # ==========================================
         if st.session_state.analyzed:
             st.markdown("---")
             st.markdown("### 📝 1. 핵심 USP & 후킹 카피 (초안)")
             st.markdown(st.session_state.main_report_text)
 
-            # ==========================================
-            # 워크플로우 2: 카피 무한 생성기
-            # ==========================================
             if "🚨" not in st.session_state.main_report_text:
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.markdown("### 💡 2. 카피라이팅 추가 추출기")
@@ -565,14 +552,10 @@ if check_password():
                         else:
                             st.warning("요청사항을 입력해주세요!")
                 
-                # 추가된 카피 표시
                 for idx, extra in enumerate(st.session_state.extra_copies):
                     with st.expander(f"💬 추가 추출 #{idx+1} (요청: {extra['req']})", expanded=True):
                         st.markdown(extra['result'])
                 
-                # ==========================================
-                # 워크플로우 3: 광고 기획안 편집
-                # ==========================================
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.markdown("### 📋 3. 광고 소재 기획안 수정")
                 if "이미지" in st.session_state.content_type:
@@ -580,9 +563,6 @@ if check_password():
                 else:
                     st.info("기획안 타겟이 'USP만 추출'로 설정되어 기획안 생성이 생략되었습니다.")
 
-                # ==========================================
-                # 워크플로우 4: 시안 수동/자동 제작
-                # ==========================================
                 if "이미지" in st.session_state.content_type:
                     st.markdown("<br>", unsafe_allow_html=True)
                     st.markdown("### 🖼️ 4. 광고 시안 제작 (선택)")
@@ -616,9 +596,6 @@ if check_password():
                         else:
                             st.info("좌측에서 시안 생성 버튼을 눌러주세요.")
 
-                # ==========================================
-                # 워크플로우 5: 최종 취합 및 복사 (워드클라우드는 화면에서만 확인)
-                # ==========================================
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.markdown("### ✅ 5. 최종 결과물 취합 및 복사")
                 
@@ -659,4 +636,4 @@ if check_password():
                 except:
                     st.warning(f"💡 [{selected_sheet}] 탭은 비어있거나 첫 줄(제목 행)이 없어서 표를 만들 수 없습니다.")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V13.1 (Hotfix & Workflow Master)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V13.2 (Model 404 Fixed)</center>", unsafe_allow_html=True)
