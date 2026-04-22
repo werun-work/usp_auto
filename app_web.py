@@ -187,7 +187,7 @@ def get_data_bulldozer(target_url, max_pages=10):
     return brand_text, "\n".join(review_list)[:30000], potential_product_imgs, product_name 
 
 # ==========================================
-# [AI 요약 엔진] 🔥 분리 추출 (기획안 테이블 분리)
+# [AI 요약 엔진] 
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content_type, copy_style, product_url, product_name, user_ref_copy):
     status_container.info(f"🧠 (3/3) 제미나이 AI가 핵심 USP를 압축하여 기획안을 작성 중입니다...")
@@ -295,7 +295,7 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
     return f"🚨 **분석 실패:** 지속적인 서버 폭주이거나, 확인할 수 없는 에러가 발생했습니다.\n👉 **실제 에러 내용:** `{last_error}`"
 
 # ==========================================
-# [추가 카피 생성기] 🔥 프롬프트 고도화 (메인 3번 수준 유지)
+# [추가 카피 생성기] 
 # ==========================================
 def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     if "명사/동사" in copy_style:
@@ -402,6 +402,50 @@ def create_ad_image(img_source, main_copy, sub_copy, product_url, is_file=False)
         return None
 
 # ==========================================
+# [워드클라우드 로직] 🔥 삭제되었던 로직 완벽 복구
+# ==========================================
+def create_wordcloud_summary(review_text):
+    try:
+        time.sleep(1) 
+        wc_prompt = f"다음 대량의 리뷰에서 가장 많이 언급된 제품 장점 및 추천 키워드(명사형) 100개만 추출해서 콤마(,)로만 구분해서 출력해.\n{review_text[:8000]}"
+        client = genai.Client(api_key=MY_GEMINI_API_KEY)
+        
+        fallback_models = ['gemini-2.5-flash', 'gemini-1.5-flash']
+        keywords = ""
+        for model_name in fallback_models:
+            for attempt in range(2):
+                 try:
+                     keywords = client.models.generate_content(model=model_name, contents=wc_prompt).text
+                     break 
+                 except:
+                     time.sleep(1) 
+                     continue
+            if keywords: break 
+            
+        if not keywords: return None
+        
+        font_path = "NanumGothic.ttf"
+        if not os.path.exists(font_path):
+            urllib.request.urlretrieve("https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf", font_path)
+        
+        # 크기 축소 및 컬러맵 적용
+        wordcloud = WordCloud(
+            font_path=font_path, width=600, height=400, 
+            background_color='white', colormap='tab10', 
+            max_words=100, prefer_horizontal=0.9, margin=2
+        ).generate(keywords)
+        
+        img_buffer = io.BytesIO()
+        plt.figure(figsize=(6, 4)) 
+        plt.imshow(wordcloud, interpolation='bilinear')
+        plt.axis('off')
+        plt.tight_layout(pad=0)
+        plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
+        plt.close()
+        return img_buffer.getvalue()
+    except: return None
+
+# ==========================================
 # [실제 화면 렌더링] 
 # ==========================================
 if check_password():
@@ -470,6 +514,8 @@ if check_password():
                             clean_report = re.sub(r'\[SELECTED_IMAGE_URL\].*?\[/SELECTED_IMAGE_URL\]', '', clean_report, flags=re.DOTALL).strip()
                         
                         st.session_state.main_report_text = clean_report
+                        
+                        # 🔥 이 부분에서 복구된 워드클라우드 함수 호출
                         st.session_state.wc_img = create_wordcloud_summary(review_txt) if len(review_txt) >= 50 else None
                         
                         kst_now = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
@@ -478,6 +524,8 @@ if check_password():
                         parsed = urlparse(main_url_input)
                         qs = parse_qs(parsed.query)
                         p_code = qs.get('branduid', qs.get('product_no', ['UNKNOWN']))[0]
+                        
+                        save_to_google_sheet([formatted_date, product_name, p_code, main_url_input, clean_report], worker_input)
                         
                         st.session_state.filename_base = f"USP_{p_code}_{now_str}"
                         st.session_state.main_url = main_url_input
@@ -560,7 +608,6 @@ if check_password():
                                     
                     with sim_col2:
                         st.write("결과 미리보기 (1/4 축소 사이즈)")
-                        # 🔥 이미지 크기를 1/4 수준으로 보이기 위해 컬럼 중첩 사용
                         if st.session_state.ad_img:
                             _, img_col, _ = st.columns([1, 2, 1])
                             with img_col:
@@ -570,11 +617,16 @@ if check_password():
                             st.info("좌측에서 시안 생성 버튼을 눌러주세요.")
 
                 # ==========================================
-                # 워크플로우 5: 최종 취합 및 복사
+                # 워크플로우 5: 최종 취합 및 복사 (워드클라우드는 화면에서만 확인)
                 # ==========================================
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.markdown("### ✅ 5. 최종 결과물 취합 및 복사")
                 
+                if st.session_state.wc_img:
+                     with st.expander("☁️ (참고용) 리뷰 키워드 워드클라우드 확인", expanded=False):
+                         st.image(st.session_state.wc_img, caption="리뷰 핵심 키워드")
+                         st.download_button("💾 워드클라우드 다운로드", data=st.session_state.wc_img, file_name=f"WC_{st.session_state.filename_base}.png", mime="image/png")
+
                 if st.button("🚀 지금까지 작업한 모든 내용 합치기", type="primary", use_container_width=True):
                     final_text = f"분석 대상: {st.session_state.main_url}\n기획 타겟: {st.session_state.content_type}\n==========================\n\n{st.session_state.main_report_text}\n\n"
                     
@@ -607,4 +659,4 @@ if check_password():
                 except:
                     st.warning(f"💡 [{selected_sheet}] 탭은 비어있거나 첫 줄(제목 행)이 없어서 표를 만들 수 없습니다.")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V13.0 (Workflow Master)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V13.1 (Hotfix & Workflow Master)</center>", unsafe_allow_html=True)
