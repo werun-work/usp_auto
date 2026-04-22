@@ -187,7 +187,7 @@ def get_data_bulldozer(target_url, max_pages=10):
     return brand_text, "\n".join(review_list)[:30000], potential_product_imgs, product_name 
 
 # ==========================================
-# [AI 요약 엔진] 🔥 모델 이름 404 에러 수정
+# [AI 요약 엔진] ✅ 모델명 수정 (v14)
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content_type, copy_style, product_url, product_name, user_ref_copy):
     status_container.info(f"🧠 (3/3) 제미나이 AI가 핵심 USP를 압축하여 기획안을 작성 중입니다...")
@@ -274,29 +274,30 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
 
     final_prompt = base_prompt + image_prompt + video_prompt
 
-    # 🔥 모델 이름을 구글의 최신 정식 명칭으로 변경
-    fallback_models = ['gemini-2.5-pro-preview-0409', 'gemini-1.5-pro-latest']
+    # ✅ 수정된 모델 목록 (v14)
+    fallback_models = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash']
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
     last_error = ""
     
     for model_name in fallback_models:
         for attempt in range(2): 
             try:
-                if attempt > 0 or model_name == 'gemini-1.5-pro-latest':
+                if attempt > 0 or model_name != 'gemini-2.5-pro':
                     status_container.warning(f"⚠️ 메인 서버 혼잡으로 예비 서버({model_name})로 우회 재시도 중...")
                 response = client.models.generate_content(model=model_name, contents=final_prompt)
                 return response.text
             except Exception as e:
                 error_msg = str(e)
                 last_error = error_msg
-                if "503" in error_msg or "high demand" in error_msg:
+                if "503" in error_msg or "high demand" in error_msg or "429" in error_msg:
                     time.sleep(2)
                     continue
-                else: break 
+                else:
+                    break
     return f"🚨 **분석 실패:** 지속적인 서버 폭주이거나, 확인할 수 없는 에러가 발생했습니다.\n👉 **실제 에러 내용:** `{last_error}`"
 
 # ==========================================
-# [추가 카피 생성기] 🔥 모델 이름 404 에러 수정
+# [추가 카피 생성기] ✅ 모델명 수정 (v14)
 # ==========================================
 def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     if "명사/동사" in copy_style:
@@ -323,7 +324,9 @@ def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     
     결과는 1. 2. 3. 번호만 매겨서 깔끔하게 출력해주세요. 절대 부연 설명을 달지 마세요.
     """
-    fallback_models = ['gemini-2.5-pro-preview-0409', 'gemini-1.5-pro-latest']
+
+    # ✅ 수정된 모델 목록 (v14)
+    fallback_models = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash']
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
     for model_name in fallback_models:
         for attempt in range(2):
@@ -401,7 +404,7 @@ def create_ad_image(img_source, main_copy, sub_copy, product_url, is_file=False)
         return None
 
 # ==========================================
-# [워드클라우드 로직] 🔥 모델 이름 404 에러 수정
+# [워드클라우드 로직] ✅ 모델명 수정 (v14)
 # ==========================================
 def create_wordcloud_summary(review_text):
     try:
@@ -409,16 +412,17 @@ def create_wordcloud_summary(review_text):
         wc_prompt = f"다음 대량의 리뷰에서 가장 많이 언급된 제품 장점 및 추천 키워드(명사형) 100개만 추출해서 콤마(,)로만 구분해서 출력해.\n{review_text[:8000]}"
         client = genai.Client(api_key=MY_GEMINI_API_KEY)
         
-        fallback_models = ['gemini-2.5-pro-preview-0409', 'gemini-1.5-pro-latest']
+        # ✅ 수정된 모델 목록 (v14)
+        fallback_models = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash']
         keywords = ""
         for model_name in fallback_models:
             for attempt in range(2):
-                 try:
-                     keywords = client.models.generate_content(model=model_name, contents=wc_prompt).text
-                     break 
-                 except:
-                     time.sleep(1) 
-                     continue
+                try:
+                    keywords = client.models.generate_content(model=model_name, contents=wc_prompt).text
+                    break 
+                except:
+                    time.sleep(1) 
+                    continue
             if keywords: break 
             
         if not keywords: return None
@@ -511,9 +515,11 @@ if check_password():
                         st.session_state.main_report_text = clean_report
                         st.session_state.wc_img = create_wordcloud_summary(review_txt) if len(review_txt) >= 50 else None
                         
+                        # ✅ formatted_date 버그 수정 (v14)
                         kst_now = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
-                        weekdays = ['월', '화', '수', '목', '금', '토', '일']
+                        formatted_date = kst_now.strftime("%Y-%m-%d %H:%M")
                         now_str = kst_now.strftime("%Y%m%d_%H%M")
+
                         parsed = urlparse(main_url_input)
                         qs = parse_qs(parsed.query)
                         p_code = qs.get('branduid', qs.get('product_no', ['UNKNOWN']))[0]
@@ -636,4 +642,4 @@ if check_password():
                 except:
                     st.warning(f"💡 [{selected_sheet}] 탭은 비어있거나 첫 줄(제목 행)이 없어서 표를 만들 수 없습니다.")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V13.2 (Model 404 Fixed)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V14.0 (Gemini Model Fixed)</center>", unsafe_allow_html=True)
