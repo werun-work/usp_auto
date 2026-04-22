@@ -275,7 +275,7 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
     final_prompt = base_prompt + image_prompt + video_prompt
 
     # ✅ 수정된 모델 목록 (v14)
-    fallback_models = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash']
+    fallback_models = ['gemini-3.1-pro', 'gemini-3.1-flash', 'gemini-2.5-pro', 'gemini-2.5-flash']
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
     last_error = ""
     
