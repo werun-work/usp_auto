@@ -43,6 +43,10 @@ for key in ['analyzed', 'final_report', 'wc_img', 'ad_img', 'filename_base', 'ma
     if key not in st.session_state:
         st.session_state[key] = None if 'img' in key else ""
 
+# 🔥 카피 무한 적재를 위한 임시 창고 생성
+if 'extra_copies' not in st.session_state:
+    st.session_state.extra_copies = []
+
 def check_password():
     if st.session_state.authenticated:
         return True
@@ -190,10 +194,10 @@ def get_data_bulldozer(target_url, max_pages=30):
     return brand_text, "\n".join(review_list)[:30000], potential_product_imgs, product_name 
 
 # ==========================================
-# [AI 요약 & 동적 프롬프트 로직] 🔥 투트랙 서버(Dual-Engine) 우회 시스템 적용
+# [AI 요약 엔진] 🔥 긍정/추천 중심 및 길이 축약 로직 반영
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content_type, copy_style, product_url, product_name):
-    status_container.info(f"🧠 (3/3) 제미나이 AI가 선택하신 옵션에 맞춰 맞춤형 기획안을 작성 중입니다...")
+    status_container.info(f"🧠 (3/3) 제미나이 AI가 핵심 USP를 압축하여 기획안을 작성 중입니다...")
     
     if "명사/동사" in copy_style:
         style_guide = "모든 카피는 20자 이내로, '명사' 혹은 '동사'로 종결하여 이미지로 즉각 각인시킬 것."
@@ -203,12 +207,13 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
         copy_title = "### 🎯 3. 초압축 다각도 후킹 카피 (각 20자 이내, 자연스러운 자유 형식)"
     
     base_prompt = f"""
-    # Role: 시니어 커머스 전략가 (생활 밀착형 라이프스타일 큐레이터)
+    # Role: 시니어 커머스 전략가
     
-    # 분석 가이드라인:
-    1. **절대 축약 금지**: 리뷰 분석(2번) 파트는 분량을 줄이지 말고 구체적이고 디테일하게 작성할 것. 
-    2. **카피 스타일**: 오직 [3번 후킹 카피] 파트만 {style_guide}
-    3. 오직 최종 결과 텍스트만 깔끔하게 마크다운으로 출력하세요.
+    # 분석 가이드라인 (매우 중요):
+    1. **핵심 위주 축약**: 바쁜 실무자가 바로 읽고 쓸 수 있도록, 의미를 훼손하지 않는 선에서 텍스트를 최대한 간결하고 압축적으로 작성하세요.
+    2. **긍정/추천 포인트 우선**: 고객들이 반복해서 칭찬하는 '긍정 포인트 및 추천 이유'를 가장 비중 있게 다루어 균형 잡힌 USP를 도출하세요. 불만 해결 요소도 중요하지만 긍정 리뷰가 메인입니다.
+    3. **카피 스타일**: 오직 [3번 후킹 카피] 파트만 {style_guide}
+    4. 오직 최종 결과 텍스트만 깔끔하게 마크다운으로 출력하세요.
 
     ---
     # Input Data:
@@ -219,20 +224,18 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
     {review_text if len(review_text) > 50 else "현재 수집된 리뷰 데이터가 없습니다."}
     ---
 
-    ### 🏢 1. 5대 다각도 핵심 USP (경험 중심)
-    1. **[관리/유지]**: 
-    2. **[시각적 핏]**: 
-    3. **[물성/촉감]**: 
-    4. **[내구성]**: 
-    5. **[상황 확산]**: 
+    ### 🏢 1. 핵심 소구점 요약 (상세페이지 기반)
+    1. **[디자인/핏]**: (간략히)
+    2. **[기능/소재]**: (간략히)
+    3. **[활용 상황]**: (간략히)
 
-    ### 🗣️ 2. 고객의 '진짜 생활' 리뷰 (Pain-Point 중심)
-    * **[생활 밀착 키워드 Top 5]**: 
+    ### 🗣️ 2. 고객의 '진짜 긍정' 리뷰 (추천 이유 중심)
+    * **[반복되는 극찬 포인트 Top 3]**: 
+    * **[해결된 불편함 (Pain-point 극복)]**: 
     * **[고객의 한 마디]**: 
-    * **[해결된 불편함]**: 
 
     {copy_title}
-    1. **[관리 혁명형]** 2. **[시간 단축형]** 3. **[시각 보정형]** 4. **[피부 공감형]** 5. **[가성비 증명형]** 6. **[상황 저격형]** 7. **[사회적 증거형]** 8. **[손실 방지형]** """
+    1. **[추천/만족형]** 2. **[시간 단축형]** 3. **[시각 보정형]** 4. **[피부/소재 공감형]** 5. **[가성비 증명형]** 6. **[상황 저격형]** 7. **[사회적 증거형]** 8. **[불만 해결형]** """
 
     image_prompt = ""
     if "이미지" in content_type:
@@ -250,12 +253,12 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
     #### 📋 광고 소재 제작 지시서
     | 구분 | 내용 |
     |---|---|
-    | **광고 지면** | GFA 피드, 메인, 스마트채널, 카카오 비즈보드, 모먼트 등 |
+    | **광고 지면** | GFA 피드, 메인, 카카오 모먼트 등 |
     | **광고 텍스트** | (위에서 작성한 메인/서브 카피를 자연스럽게 2줄로 기재) |
     | **버튼(CTA)** | {product_name} > |
     | **URL** | {product_url} |
     | **제품명** | {product_name} |
-    | **제작 설명** | - (레퍼런스 이미지를 바탕으로 어떻게 배경 합성을 하고 모델을 배치할지 디자이너 지시사항 2줄 기재) |
+    | **제작 설명** | - (레퍼런스 이미지 기반 배경 합성 및 레이아웃 지시사항 간략 기재) |
     | **레퍼런스** | (위에서 선별한 SELECTED_IMAGE_URL 을 그대로 기재) |
     
     [Potential Product Images]
@@ -266,37 +269,68 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
     if "영상" in content_type:
         video_num = "5" if "이미지" in content_type else "4"
         video_prompt = f"""
-    ### 🎬 {video_num}. 숏폼 영상 기획안 (6초~15초 콘티)
-    * **[초반 Hook (0~3초)]**: (구체적 상황 묘사)
-    * **[Body 전개 (3~10초)]**: (시각적 대비 및 증명)
-    * **[Action 마무리 (10~15초)]**: (구매 유도)
+    ### 🎬 {video_num}. 숏폼 영상 기획안 (6~15초)
+    * **[Hook (0~3초)]**: (상황 묘사)
+    * **[Body (3~10초)]**: (시각적 증명)
+    * **[Action (10~15초)]**: (구매 유도)
     """
 
     final_prompt = base_prompt + image_prompt + video_prompt
 
-    # 🔥 메인 엔진(2.5-flash) 실패 시 예비 엔진(1.5-flash)으로 강제 우회 접속
+    # 🔥 2.5-flash 우선 시도 후 1.5-flash 우회 (Dual-Engine)
     fallback_models = ['gemini-2.5-flash', 'gemini-1.5-flash']
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
     
     for model_name in fallback_models:
-        for attempt in range(2): # 각 엔진당 2번씩 찔러봄
+        for attempt in range(2): 
             try:
                 if attempt > 0 or model_name == 'gemini-1.5-flash':
-                    status_container.warning(f"⚠️ [우회 접속 중] 메인 서버 혼잡으로 예비 서버({model_name})로 우회하여 재시도합니다...")
+                    status_container.warning(f"⚠️ 메인 서버 혼잡으로 예비 서버({model_name})로 우회 재시도 중...")
                 response = client.models.generate_content(model=model_name, contents=final_prompt)
                 return response.text
             except Exception as e:
                 error_msg = str(e)
                 if "503" in error_msg or "high demand" in error_msg:
-                    time.sleep(2) # 2초 쉬고 재도전
+                    time.sleep(2)
                     continue
                 else:
-                    break # 503 폭주 에러가 아닌 다른 치명적 에러면 포기
-                    
-    return "🚨 **모든 AI 서버(메인 및 예비 서버)가 현재 폭주 상태입니다.** 서버 트래픽이 안정된 후 다시 시도해주세요."
+                    break 
+    return "🚨 **모든 AI 서버가 현재 폭주 상태입니다.** 서버 트래픽이 안정된 후 다시 시도해주세요."
 
 # ==========================================
-# [이미지 합성 로직]
+# [추가 카피 무한 생성기] 🔥 신규 기능
+# ==========================================
+def generate_extra_copies(base_report, user_req, copy_style):
+    if "명사/동사" in copy_style:
+        style_guide = "각 20자 이내, '명사' 혹은 '동사'로 종결되는 임팩트형"
+    else:
+        style_guide = "각 20자 이내, 자연스럽게 고객에게 말 거는 서술형"
+
+    prompt = f"""
+    다음은 우리 제품의 핵심 USP 분석 결과입니다:
+    {base_report}
+    
+    이 분석 결과를 바탕으로, 마케터의 아래 [추가 요청사항]을 완벽하게 반영하여 **완전히 새로운 후킹 카피 8개**를 추가로 작성해주세요.
+    
+    [마케터 추가 요청사항]: "{user_req}"
+    [카피 제약 조건]: {style_guide}
+    
+    결과는 1번부터 8번까지 번호를 매겨서 깔끔하게 출력해주세요. 다른 설명은 생략하세요.
+    """
+    fallback_models = ['gemini-2.5-flash', 'gemini-1.5-flash']
+    client = genai.Client(api_key=MY_GEMINI_API_KEY)
+    for model_name in fallback_models:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(model=model_name, contents=prompt)
+                return response.text
+            except:
+                time.sleep(1)
+                continue
+    return "🚨 서버 지연으로 추가 카피 생성에 실패했습니다. 다시 시도해주세요."
+
+# ==========================================
+# [이미지 합성 로직] 🔥 퀄리티 대폭 상승 (그라데이션 & 로고 추가)
 # ==========================================
 def create_ad_image(img_url, main_copy, sub_copy, product_url):
     if not img_url or img_url == "None": 
@@ -315,8 +349,12 @@ def create_ad_image(img_url, main_copy, sub_copy, product_url):
         overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         
-        box_top = int(h_size * 0.6)
-        draw.rectangle(((0, box_top), (base_width, h_size)), fill=(0, 0, 0, 160))
+        # 🔥 딱딱한 박스 대신 부드러운 하단 투명 그라데이션 적용
+        box_top = int(h_size * 0.45)
+        for y in range(box_top, h_size):
+            progress = (y - box_top) / (h_size - box_top)
+            alpha = int(220 * progress) # 점진적으로 어두워짐 (Max 220)
+            draw.line([(0, y), (base_width, y)], fill=(0, 0, 0, alpha))
         
         img = Image.alpha_composite(img, overlay)
         draw = ImageDraw.Draw(img)
@@ -328,54 +366,53 @@ def create_ad_image(img_url, main_copy, sub_copy, product_url):
         if not os.path.exists(font_r_path):
             urllib.request.urlretrieve("https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf", font_r_path)
             
-        font_main = ImageFont.truetype(font_b_path, 65)
-        font_sub = ImageFont.truetype(font_r_path, 40)
-        font_url = ImageFont.truetype(font_r_path, 25)
+        font_main = ImageFont.truetype(font_b_path, 75) # 폰트 크기 업그레이드
+        font_sub = ImageFont.truetype(font_r_path, 45)
+        font_logo = ImageFont.truetype(font_b_path, 40)
         
+        # 🔥 좌측 상단에 고급스러운 텍스트 로고 배치
+        draw.text((50, 50), "X E X Y M I X", font=font_logo, fill=(255, 255, 255, 230))
+
         def draw_centered_text(text, font, y_pos, color):
             bbox = draw.textbbox((0, 0), text, font=font)
             text_x = (base_width - (bbox[2] - bbox[0])) / 2
             draw.text((text_x, y_pos), text, font=font, fill=color)
 
-        start_y = box_top + 40
+        start_y = int(h_size * 0.7)
+        
+        # 서브 카피가 메인 카피 위로 올라가는 세련된 레이아웃
+        sub_copy = sub_copy if sub_copy else "시선을 사로잡는 디테일"
+        draw_centered_text(sub_copy, font_sub, start_y - 60, (230, 230, 230, 255))
         
         main_copy = main_copy if main_copy else "매력적인 메인 카피"
-        draw_centered_text(main_copy, font_main, start_y, (255, 255, 255, 255))
+        draw_centered_text(main_copy, font_main, start_y + 10, (255, 255, 255, 255))
         
-        sub_copy = sub_copy if sub_copy else "고객의 시선을 사로잡는 상세한 서브 카피"
-        draw_centered_text(sub_copy, font_sub, start_y + 90, (220, 220, 220, 255))
-        
-        domain = urlparse(product_url).netloc
-        draw_centered_text(f"Product link: {domain}", font_url, h_size - 40, (150, 150, 150, 255))
-
         img_buffer = io.BytesIO()
         img.convert("RGB").save(img_buffer, format="PNG")
         return img_buffer.getvalue()
     except Exception as e: 
         return None
 
+# ==========================================
+# [워드클라우드 로직] 🔥 다채로운 컬러 & 크기 2/3 축소
+# ==========================================
 def create_wordcloud_summary(review_text):
     try:
-        time.sleep(2) 
-        wc_prompt = f"다음 대량의 리뷰에서 가장 많이 언급된 제품 장점 키워드(명사형) 50개만 추출해서, 다른 설명 일절 없이 오직 콤마(,)로만 구분해서 결과만 출력해.\n{review_text[:8000]}"
+        time.sleep(1) 
+        wc_prompt = f"다음 대량의 리뷰에서 가장 많이 언급된 제품 장점 및 추천 키워드(명사형) 100개만 추출해서 콤마(,)로만 구분해서 출력해.\n{review_text[:8000]}"
         client = genai.Client(api_key=MY_GEMINI_API_KEY)
         
-        # 🔥 워드클라우드에도 예비 엔진 우회 적용
         fallback_models = ['gemini-2.5-flash', 'gemini-1.5-flash']
         keywords = ""
         for model_name in fallback_models:
             for attempt in range(2):
                  try:
                      keywords = client.models.generate_content(model=model_name, contents=wc_prompt).text
-                     break # 성공하면 반복문 탈출
-                 except Exception as e:
-                     error_msg = str(e)
-                     if "503" in error_msg or "high demand" in error_msg:
-                         time.sleep(2) 
-                         continue
-                     else:
-                         break
-            if keywords: break # 상위 for문 탈출
+                     break 
+                 except:
+                     time.sleep(1) 
+                     continue
+            if keywords: break 
             
         if not keywords: return None
         
@@ -383,12 +420,19 @@ def create_wordcloud_summary(review_text):
         if not os.path.exists(font_path):
             urllib.request.urlretrieve("https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf", font_path)
         
-        wordcloud = WordCloud(font_path=font_path, width=800, height=800, background_color='white', colormap='magma').generate(keywords)
+        # 🔥 크기 축소 (600x400) 및 다채로운 컬러맵(tab10) 적용, 여백 최소화
+        wordcloud = WordCloud(
+            font_path=font_path, width=600, height=400, 
+            background_color='white', colormap='tab10', 
+            max_words=100, prefer_horizontal=0.9, margin=2
+        ).generate(keywords)
+        
         img_buffer = io.BytesIO()
-        plt.figure(figsize=(8, 8))
+        plt.figure(figsize=(6, 4)) # 피규어 사이즈 2/3로 축소
         plt.imshow(wordcloud, interpolation='bilinear')
         plt.axis('off')
-        plt.savefig(img_buffer, format='png', bbox_inches='tight')
+        plt.tight_layout(pad=0)
+        plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
         plt.close()
         return img_buffer.getvalue()
     except: return None
@@ -414,12 +458,16 @@ if check_password():
             worker_input = st.text_input("👤 작업자 이름", value="", placeholder="예: 김마케터")
             st.markdown("---")
             
-            content_type_input = st.selectbox("🎬 기획안 타겟 선택", ["이미지+영상", "이미지", "영상", "USP만 추출 (기획안 제외)"], index=0)
-            copy_style_input = st.selectbox("✍️ 카피라이팅 스타일", ["명사/동사 중심 (임팩트형)", "자유 형식 (자연스러운 서술형)"], index=0)
+            # 🔥 기본값(디폴트) 설정 완료
+            content_type_input = st.selectbox("🎬 기획안 타겟 선택", ["이미지+영상", "이미지", "영상", "USP만 추출 (기획안 제외)"], index=3)
+            copy_style_input = st.selectbox("✍️ 카피라이팅 스타일", ["명사/동사 중심 (임팩트형)", "자유 형식 (자연스러운 서술형)"], index=1)
             st.markdown("---")
             
+            # 🔥 URL 입력란 하단에 친절한 예시 문구 추가
             main_url_input = st.text_input("🔗 분석할 상품 URL", value="", placeholder="URL을 입력하세요")
-            max_pages_input = st.slider("📜 수집 페이지 수", 10, 50, 30, 5)
+            st.caption("✔️ 작성 예시: https://www.xexymix.com/shop/shopdetail.html?branduid=2077700")
+            
+            max_pages_input = st.slider("📜 수집 페이지 수", 10, 50, 10, 5) # 디폴트 10으로 변경
         
         col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
         with col_btn2:
@@ -432,8 +480,10 @@ if check_password():
                 st.warning("⚠️ 이름과 URL을 모두 입력해주세요!")
             else:
                 with status_container:
-                    brand_txt, review_txt, potential_imgs, product_name = get_data_bulldozer(main_url_input, max_pages_input)
+                    # 새로운 분석을 시작하면 기존 추가 카피 창고 초기화
+                    st.session_state.extra_copies = []
                     
+                    brand_txt, review_txt, potential_imgs, product_name = get_data_bulldozer(main_url_input, max_pages_input)
                     raw_report = analyze_deep_usp_summarized(brand_txt, review_txt, potential_imgs, content_type_input, copy_style_input, main_url_input, product_name)
                     
                     if "🚨" in raw_report:
@@ -491,16 +541,42 @@ if check_password():
                         st.session_state.analyzed = True
                         st.toast("✅ 맞춤형 분석 및 기획 완료!", icon="🎉")
 
+        # 분석 결과 노출
         if st.session_state.analyzed:
             st.markdown("---")
             result_expander = st.expander("📝 1. AI 맞춤형 기획안 & 카피 (클릭하여 열기)", expanded=True)
             with result_expander:
                 st.markdown(st.session_state.final_report)
-                st.text_area("📋 결과 복사하기", st.session_state.final_report, height=400)
+                st.text_area("📋 결과 복사하기", st.session_state.final_report, height=300)
 
+            # 🔥 2. 무한 카피 생성기 (추가 적재) UI
             if "🚨" not in st.session_state.final_report:
+                st.markdown("### 💡 카피라이팅 추가 추출기")
+                st.info("메인 분석 결과를 바탕으로, 마케터의 의도를 담은 카피를 무제한으로 계속 뽑아보세요!")
+                
+                col_extra1, col_extra2 = st.columns([4, 1])
+                with col_extra1:
+                    extra_req = st.text_input("👇 원하는 소구점이나 무드를 자유롭게 적어주세요.", placeholder="예: 봄 시즌에 맞춰서 화사하게, 40대 타겟으로 변경해서, 신축성을 강조해서 등")
+                with col_extra2:
+                    st.write("") # 버튼 줄맞춤
+                    if st.button("➕ 카피 8개 추가", use_container_width=True):
+                        if extra_req:
+                            with st.spinner("AI가 마케터님의 의도를 반영하여 새로운 카피를 뽑는 중..."):
+                                new_copies = generate_extra_copies(st.session_state.final_report, extra_req, st.session_state.copy_style)
+                                # 결과 적재 (과거 내역이 위로 쌓이게)
+                                st.session_state.extra_copies.insert(0, {"req": extra_req, "result": new_copies})
+                        else:
+                            st.warning("요청사항을 입력해주세요!")
+                
+                # 추가된 카피들 누적해서 보여주기
+                for idx, extra in enumerate(st.session_state.extra_copies):
+                    with st.expander(f"💬 추가 추출 #{len(st.session_state.extra_copies) - idx} (요청: {extra['req']})", expanded=True):
+                        st.markdown(extra['result'])
+                
+                st.markdown("---")
+
                 if "이미지" in st.session_state.content_type:
-                    ad_expander = st.expander("🖼️ 2. 추천 광고 소재 시안 (실제 상품 이미지 합성)", expanded=True)
+                    ad_expander = st.expander("🖼️ 3. 추천 광고 소재 시안 (실제 상품 이미지 합성)", expanded=True)
                     with ad_expander:
                         if st.session_state.ad_img:
                             st.image(st.session_state.ad_img, caption=f"AI 텍스트 레이아웃 합성본 ({st.session_state.copy_style})")
@@ -508,7 +584,7 @@ if check_password():
                         else:
                             st.warning("적합한 상품 이미지를 찾지 못했습니다.")
 
-                wordcloud_expander = st.expander("☁️ 3. 리뷰 키워드 워드클라우드", expanded=True)
+                wordcloud_expander = st.expander("☁️ 4. 리뷰 키워드 워드클라우드", expanded=True)
                 with wordcloud_expander:
                     if st.session_state.wc_img:
                         st.image(st.session_state.wc_img, caption="리뷰 핵심 키워드")
@@ -516,9 +592,16 @@ if check_password():
                     else:
                         st.markdown("⚠️ 수집된 리뷰가 너무 적거나, 일시적인 AI 트래픽 과부하로 인해 워드클라우드 생성이 생략되었습니다.")
                 
+                # 다운로드 통합 텍스트 만들기 (추가 카피 포함)
+                download_text = f"분석 대상: {st.session_state.main_url}\n기획 타겟: {st.session_state.content_type}\n카피 스타일: {st.session_state.copy_style}\n작업자: {st.session_state.worker_name}\n==========================\n\n{st.session_state.final_report}\n\n"
+                if st.session_state.extra_copies:
+                    download_text += "==========================\n[추가 카피 적재 내역]\n"
+                    for extra in st.session_state.extra_copies:
+                        download_text += f"\n▶ 요청: {extra['req']}\n{extra['result']}\n"
+
                 st.download_button(
-                    label="💾 전체 기획안(.txt) 일괄 다운로드",
-                    data=f"분석 대상: {st.session_state.main_url}\n기획 타겟: {st.session_state.content_type}\n카피 스타일: {st.session_state.copy_style}\n작업자: {st.session_state.worker_name}\n==========================\n\n{st.session_state.final_report}",
+                    label="💾 전체 기획안(.txt) 일괄 다운로드 (추가 카피 포함)",
+                    data=download_text,
                     file_name=f"{st.session_state.filename_base}.txt",
                     mime="text/plain",
                     use_container_width=True
@@ -540,4 +623,4 @@ if check_password():
                 except Exception as e:
                     st.warning(f"💡 [{selected_sheet}] 탭은 비어있거나 첫 줄(제목 행)이 없어서 표를 만들 수 없습니다. 새로운 분석을 1회 진행하시면 자동으로 채워집니다!")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V11.4 (Dual-Engine Fallback)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V12.0 (All-in-One)</center>", unsafe_allow_html=True)
