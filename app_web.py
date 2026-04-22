@@ -190,7 +190,7 @@ def get_data_bulldozer(target_url, max_pages=30):
     return brand_text, "\n".join(review_list)[:30000], potential_product_imgs, product_name 
 
 # ==========================================
-# [AI 요약 & 동적 프롬프트 로직] 🔥 503 에러 안내문구 강화
+# [AI 요약 & 동적 프롬프트 로직] 🔥 투트랙 서버(Dual-Engine) 우회 시스템 적용
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content_type, copy_style, product_url, product_name):
     status_container.info(f"🧠 (3/3) 제미나이 AI가 선택하신 옵션에 맞춰 맞춤형 기획안을 작성 중입니다...")
@@ -274,15 +274,26 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
 
     final_prompt = base_prompt + image_prompt + video_prompt
 
-    try:
-        client = genai.Client(api_key=MY_GEMINI_API_KEY)
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=final_prompt)
-        return response.text
-    except Exception as e:
-        error_msg = str(e)
-        if "503" in error_msg or "high demand" in error_msg:
-            return "🚨 **현재 구글 AI 서버에 전 세계적인 접속이 폭주하여 일시적으로 분석이 지연되고 있습니다.** 10~20초 정도 기다리신 후 [▶ 분석 시작] 버튼을 다시 눌러주세요!"
-        return f"🚨 AI 분석 실패: {e}"
+    # 🔥 메인 엔진(2.5-flash) 실패 시 예비 엔진(1.5-flash)으로 강제 우회 접속
+    fallback_models = ['gemini-2.5-flash', 'gemini-1.5-flash']
+    client = genai.Client(api_key=MY_GEMINI_API_KEY)
+    
+    for model_name in fallback_models:
+        for attempt in range(2): # 각 엔진당 2번씩 찔러봄
+            try:
+                if attempt > 0 or model_name == 'gemini-1.5-flash':
+                    status_container.warning(f"⚠️ [우회 접속 중] 메인 서버 혼잡으로 예비 서버({model_name})로 우회하여 재시도합니다...")
+                response = client.models.generate_content(model=model_name, contents=final_prompt)
+                return response.text
+            except Exception as e:
+                error_msg = str(e)
+                if "503" in error_msg or "high demand" in error_msg:
+                    time.sleep(2) # 2초 쉬고 재도전
+                    continue
+                else:
+                    break # 503 폭주 에러가 아닌 다른 치명적 에러면 포기
+                    
+    return "🚨 **모든 AI 서버(메인 및 예비 서버)가 현재 폭주 상태입니다.** 서버 트래픽이 안정된 후 다시 시도해주세요."
 
 # ==========================================
 # [이미지 합성 로직]
@@ -348,7 +359,25 @@ def create_wordcloud_summary(review_text):
         time.sleep(2) 
         wc_prompt = f"다음 대량의 리뷰에서 가장 많이 언급된 제품 장점 키워드(명사형) 50개만 추출해서, 다른 설명 일절 없이 오직 콤마(,)로만 구분해서 결과만 출력해.\n{review_text[:8000]}"
         client = genai.Client(api_key=MY_GEMINI_API_KEY)
-        keywords = client.models.generate_content(model='gemini-2.5-flash', contents=wc_prompt).text
+        
+        # 🔥 워드클라우드에도 예비 엔진 우회 적용
+        fallback_models = ['gemini-2.5-flash', 'gemini-1.5-flash']
+        keywords = ""
+        for model_name in fallback_models:
+            for attempt in range(2):
+                 try:
+                     keywords = client.models.generate_content(model=model_name, contents=wc_prompt).text
+                     break # 성공하면 반복문 탈출
+                 except Exception as e:
+                     error_msg = str(e)
+                     if "503" in error_msg or "high demand" in error_msg:
+                         time.sleep(2) 
+                         continue
+                     else:
+                         break
+            if keywords: break # 상위 for문 탈출
+            
+        if not keywords: return None
         
         font_path = "NanumGothic.ttf"
         if not os.path.exists(font_path):
@@ -407,7 +436,6 @@ if check_password():
                     
                     raw_report = analyze_deep_usp_summarized(brand_txt, review_txt, potential_imgs, content_type_input, copy_style_input, main_url_input, product_name)
                     
-                    # 🔥 에러 메시지(503)가 떴을 경우, 구글 시트 저장이나 워드클라우드를 패스하고 바로 메시지를 띄웁니다.
                     if "🚨" in raw_report:
                         st.session_state.final_report = raw_report
                         st.session_state.analyzed = True
@@ -470,7 +498,6 @@ if check_password():
                 st.markdown(st.session_state.final_report)
                 st.text_area("📋 결과 복사하기", st.session_state.final_report, height=400)
 
-            # 에러 메시지(🚨)가 없을 때만 시안과 워드클라우드를 렌더링
             if "🚨" not in st.session_state.final_report:
                 if "이미지" in st.session_state.content_type:
                     ad_expander = st.expander("🖼️ 2. 추천 광고 소재 시안 (실제 상품 이미지 합성)", expanded=True)
@@ -513,4 +540,4 @@ if check_password():
                 except Exception as e:
                     st.warning(f"💡 [{selected_sheet}] 탭은 비어있거나 첫 줄(제목 행)이 없어서 표를 만들 수 없습니다. 새로운 분석을 1회 진행하시면 자동으로 채워집니다!")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V11.3 (Final Cut)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V11.4 (Dual-Engine Fallback)</center>", unsafe_allow_html=True)
