@@ -24,7 +24,7 @@ import re
 from PIL import Image, ImageDraw, ImageFont
 
 # ==========================================
-# [초기 세팅 영역] 🔥 이모지 에러 방지를 위해 shortcode(:dart:) 사용
+# [초기 세팅 영역]
 # ==========================================
 st.set_page_config(page_title="AI USP 추출 솔루션", page_icon=":dart:", layout="wide")
 
@@ -190,7 +190,7 @@ def get_data_bulldozer(target_url, max_pages=30):
     return brand_text, "\n".join(review_list)[:30000], potential_product_imgs, product_name 
 
 # ==========================================
-# [AI 요약 & 동적 프롬프트 로직] 🔥 실무 기획안 폼 완벽 적용
+# [AI 요약 & 동적 프롬프트 로직] 🔥 503 에러 안내문구 강화
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content_type, copy_style, product_url, product_name):
     status_container.info(f"🧠 (3/3) 제미나이 AI가 선택하신 옵션에 맞춰 맞춤형 기획안을 작성 중입니다...")
@@ -279,7 +279,10 @@ def analyze_deep_usp_summarized(brand_text, review_text, potential_imgs, content
         response = client.models.generate_content(model='gemini-2.5-flash', contents=final_prompt)
         return response.text
     except Exception as e:
-        return f"AI 분석 실패: {e}"
+        error_msg = str(e)
+        if "503" in error_msg or "high demand" in error_msg:
+            return "🚨 **현재 구글 AI 서버에 전 세계적인 접속이 폭주하여 일시적으로 분석이 지연되고 있습니다.** 10~20초 정도 기다리신 후 [▶ 분석 시작] 버튼을 다시 눌러주세요!"
+        return f"🚨 AI 분석 실패: {e}"
 
 # ==========================================
 # [이미지 합성 로직]
@@ -382,7 +385,6 @@ if check_password():
             worker_input = st.text_input("👤 작업자 이름", value="", placeholder="예: 김마케터")
             st.markdown("---")
             
-            # 🔥 USP만 추출 옵션 완벽 추가!
             content_type_input = st.selectbox("🎬 기획안 타겟 선택", ["이미지+영상", "이미지", "영상", "USP만 추출 (기획안 제외)"], index=0)
             copy_style_input = st.selectbox("✍️ 카피라이팅 스타일", ["명사/동사 중심 (임팩트형)", "자유 형식 (자연스러운 서술형)"], index=0)
             st.markdown("---")
@@ -403,59 +405,63 @@ if check_password():
                 with status_container:
                     brand_txt, review_txt, potential_imgs, product_name = get_data_bulldozer(main_url_input, max_pages_input)
                     
-                    # 🔥 AI 프롬프트에 상품명과 URL 파라미터 전달 완료!
                     raw_report = analyze_deep_usp_summarized(brand_txt, review_txt, potential_imgs, content_type_input, copy_style_input, main_url_input, product_name)
                     
-                    main_copy_text = ""
-                    sub_copy_text = ""
-                    selected_img_url = None
-                    clean_report = raw_report
-                    ad_img = None
-                    
-                    if "이미지" in content_type_input:
-                        main_copy_match = re.search(r'\[MAIN_COPY\](.*?)\[/MAIN_COPY\]', raw_report, re.DOTALL)
-                        sub_copy_match = re.search(r'\[SUB_COPY\](.*?)\[/SUB_COPY\]', raw_report, re.DOTALL)
+                    # 🔥 에러 메시지(503)가 떴을 경우, 구글 시트 저장이나 워드클라우드를 패스하고 바로 메시지를 띄웁니다.
+                    if "🚨" in raw_report:
+                        st.session_state.final_report = raw_report
+                        st.session_state.analyzed = True
+                    else:
+                        main_copy_text = ""
+                        sub_copy_text = ""
+                        selected_img_url = None
+                        clean_report = raw_report
+                        ad_img = None
                         
-                        if main_copy_match: main_copy_text = main_copy_match.group(1).strip()
-                        if sub_copy_match: sub_copy_text = sub_copy_match.group(1).strip()
-                        
-                        selected_img_match = re.search(r'\[SELECTED_IMAGE_URL\](.*?)\[/SELECTED_IMAGE_URL\]', raw_report, re.DOTALL)
-                        if selected_img_match:
-                            selected_img_url = selected_img_match.group(1).strip()
+                        if "이미지" in content_type_input:
+                            main_copy_match = re.search(r'\[MAIN_COPY\](.*?)\[/MAIN_COPY\]', raw_report, re.DOTALL)
+                            sub_copy_match = re.search(r'\[SUB_COPY\](.*?)\[/SUB_COPY\]', raw_report, re.DOTALL)
                             
-                        clean_report = re.sub(r'\[MAIN_COPY\].*?\[/MAIN_COPY\]', '', raw_report, flags=re.DOTALL)
-                        clean_report = re.sub(r'\[SUB_COPY\].*?\[/SUB_COPY\]', '', clean_report, flags=re.DOTALL)
-                        clean_report = re.sub(r'\[SELECTED_IMAGE_URL\].*?\[/SELECTED_IMAGE_URL\]', '', clean_report, flags=re.DOTALL).strip()
-                        
-                        if selected_img_url:
-                            status_container.info("🎨 AI가 선별한 상품 이미지에 추천 카피 합성 중...")
-                            ad_img = create_ad_image(selected_img_url, main_copy_text, sub_copy_text, main_url_input)
+                            if main_copy_match: main_copy_text = main_copy_match.group(1).strip()
+                            if sub_copy_match: sub_copy_text = sub_copy_match.group(1).strip()
+                            
+                            selected_img_match = re.search(r'\[SELECTED_IMAGE_URL\](.*?)\[/SELECTED_IMAGE_URL\]', raw_report, re.DOTALL)
+                            if selected_img_match:
+                                selected_img_url = selected_img_match.group(1).strip()
+                                
+                            clean_report = re.sub(r'\[MAIN_COPY\].*?\[/MAIN_COPY\]', '', raw_report, flags=re.DOTALL)
+                            clean_report = re.sub(r'\[SUB_COPY\].*?\[/SUB_COPY\]', '', clean_report, flags=re.DOTALL)
+                            clean_report = re.sub(r'\[SELECTED_IMAGE_URL\].*?\[/SELECTED_IMAGE_URL\]', '', clean_report, flags=re.DOTALL).strip()
+                            
+                            if selected_img_url:
+                                status_container.info("🎨 AI가 선별한 상품 이미지에 추천 카피 합성 중...")
+                                ad_img = create_ad_image(selected_img_url, main_copy_text, sub_copy_text, main_url_input)
 
-                    wc_img = None
-                    if len(review_txt) >= 50:
-                        wc_img = create_wordcloud_summary(review_txt)
-                    
-                    kst_now = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
-                    weekdays = ['월', '화', '수', '목', '금', '토', '일']
-                    formatted_date = f"{kst_now.strftime('%Y-%m-%d')}({weekdays[kst_now.weekday()]}) {kst_now.strftime('%H:%M')}"
-                    now_str = kst_now.strftime("%Y%m%d_%H%M")
-                    
-                    parsed = urlparse(main_url_input)
-                    qs = parse_qs(parsed.query)
-                    p_code = qs.get('branduid', qs.get('product_no', ['UNKNOWN']))[0]
-                    
-                    save_to_google_sheet([formatted_date, product_name, p_code, main_url_input, clean_report], worker_input)
-                    
-                    st.session_state.final_report = clean_report
-                    st.session_state.wc_img = wc_img
-                    st.session_state.ad_img = ad_img
-                    st.session_state.filename_base = f"USP_{p_code}_{now_str}"
-                    st.session_state.main_url = main_url_input
-                    st.session_state.worker_name = worker_input
-                    st.session_state.content_type = content_type_input 
-                    st.session_state.copy_style = copy_style_input
-                    st.session_state.analyzed = True
-                    st.toast("✅ 맞춤형 분석 및 기획 완료!", icon="🎉")
+                        wc_img = None
+                        if len(review_txt) >= 50:
+                            wc_img = create_wordcloud_summary(review_txt)
+                        
+                        kst_now = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+                        weekdays = ['월', '화', '수', '목', '금', '토', '일']
+                        formatted_date = f"{kst_now.strftime('%Y-%m-%d')}({weekdays[kst_now.weekday()]}) {kst_now.strftime('%H:%M')}"
+                        now_str = kst_now.strftime("%Y%m%d_%H%M")
+                        
+                        parsed = urlparse(main_url_input)
+                        qs = parse_qs(parsed.query)
+                        p_code = qs.get('branduid', qs.get('product_no', ['UNKNOWN']))[0]
+                        
+                        save_to_google_sheet([formatted_date, product_name, p_code, main_url_input, clean_report], worker_input)
+                        
+                        st.session_state.final_report = clean_report
+                        st.session_state.wc_img = wc_img
+                        st.session_state.ad_img = ad_img
+                        st.session_state.filename_base = f"USP_{p_code}_{now_str}"
+                        st.session_state.main_url = main_url_input
+                        st.session_state.worker_name = worker_input
+                        st.session_state.content_type = content_type_input 
+                        st.session_state.copy_style = copy_style_input
+                        st.session_state.analyzed = True
+                        st.toast("✅ 맞춤형 분석 및 기획 완료!", icon="🎉")
 
         if st.session_state.analyzed:
             st.markdown("---")
@@ -464,30 +470,32 @@ if check_password():
                 st.markdown(st.session_state.final_report)
                 st.text_area("📋 결과 복사하기", st.session_state.final_report, height=400)
 
-            if "이미지" in st.session_state.content_type:
-                ad_expander = st.expander("🖼️ 2. 추천 광고 소재 시안 (실제 상품 이미지 합성)", expanded=True)
-                with ad_expander:
-                    if st.session_state.ad_img:
-                        st.image(st.session_state.ad_img, caption=f"AI 텍스트 레이아웃 합성본 ({st.session_state.copy_style})")
-                        st.download_button("💾 광고 시안(.png) 다운로드", data=st.session_state.ad_img, file_name=f"AD_{st.session_state.filename_base}.png", mime="image/png")
-                    else:
-                        st.warning("적합한 상품 이미지를 찾지 못했습니다.")
+            # 에러 메시지(🚨)가 없을 때만 시안과 워드클라우드를 렌더링
+            if "🚨" not in st.session_state.final_report:
+                if "이미지" in st.session_state.content_type:
+                    ad_expander = st.expander("🖼️ 2. 추천 광고 소재 시안 (실제 상품 이미지 합성)", expanded=True)
+                    with ad_expander:
+                        if st.session_state.ad_img:
+                            st.image(st.session_state.ad_img, caption=f"AI 텍스트 레이아웃 합성본 ({st.session_state.copy_style})")
+                            st.download_button("💾 광고 시안(.png) 다운로드", data=st.session_state.ad_img, file_name=f"AD_{st.session_state.filename_base}.png", mime="image/png")
+                        else:
+                            st.warning("적합한 상품 이미지를 찾지 못했습니다.")
 
-            wordcloud_expander = st.expander("☁️ 3. 리뷰 키워드 워드클라우드", expanded=True)
-            with wordcloud_expander:
-                if st.session_state.wc_img:
-                    st.image(st.session_state.wc_img, caption="리뷰 핵심 키워드")
-                    st.download_button("💾 워드클라우드(.png) 다운로드", data=st.session_state.wc_img, file_name=f"WC_{st.session_state.filename_base}.png", mime="image/png")
-                else:
-                    st.markdown("⚠️ 수집된 리뷰가 너무 적거나, 일시적인 AI 트래픽 과부하로 인해 워드클라우드 생성이 생략되었습니다.")
-            
-            st.download_button(
-                label="💾 전체 기획안(.txt) 일괄 다운로드",
-                data=f"분석 대상: {st.session_state.main_url}\n기획 타겟: {st.session_state.content_type}\n카피 스타일: {st.session_state.copy_style}\n작업자: {st.session_state.worker_name}\n==========================\n\n{st.session_state.final_report}",
-                file_name=f"{st.session_state.filename_base}.txt",
-                mime="text/plain",
-                use_container_width=True
-            )
+                wordcloud_expander = st.expander("☁️ 3. 리뷰 키워드 워드클라우드", expanded=True)
+                with wordcloud_expander:
+                    if st.session_state.wc_img:
+                        st.image(st.session_state.wc_img, caption="리뷰 핵심 키워드")
+                        st.download_button("💾 워드클라우드(.png) 다운로드", data=st.session_state.wc_img, file_name=f"WC_{st.session_state.filename_base}.png", mime="image/png")
+                    else:
+                        st.markdown("⚠️ 수집된 리뷰가 너무 적거나, 일시적인 AI 트래픽 과부하로 인해 워드클라우드 생성이 생략되었습니다.")
+                
+                st.download_button(
+                    label="💾 전체 기획안(.txt) 일괄 다운로드",
+                    data=f"분석 대상: {st.session_state.main_url}\n기획 타겟: {st.session_state.content_type}\n카피 스타일: {st.session_state.copy_style}\n작업자: {st.session_state.worker_name}\n==========================\n\n{st.session_state.final_report}",
+                    file_name=f"{st.session_state.filename_base}.txt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
 
     with tab2:
         st.header("📋 과거 분석 히스토리")
@@ -505,4 +513,4 @@ if check_password():
                 except Exception as e:
                     st.warning(f"💡 [{selected_sheet}] 탭은 비어있거나 첫 줄(제목 행)이 없어서 표를 만들 수 없습니다. 새로운 분석을 1회 진행하시면 자동으로 채워집니다!")
 
-    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V11.2 (Final Cut)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>마케팅 자동화 솔루션 | Internal Tool V11.3 (Final Cut)</center>", unsafe_allow_html=True)
