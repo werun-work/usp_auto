@@ -54,7 +54,7 @@ session_keys = [
     'analyzed', 'main_report_text', 'ad_plan_df', 'wc_img', 'ad_img', 
     'filename_base', 'main_url', 'worker_name', 'content_type', 'copy_style', 
     'user_ref_copy', 'extracted_img_url', 'extra_copies', 'final_compiled_text',
-    'used_model_version', 'potential_imgs', 'product_name'
+    'used_model_version', 'potential_imgs', 'product_name', 'p_code'
 ]
 for key in session_keys:
     if key not in st.session_state:
@@ -144,7 +144,6 @@ def save_to_google_sheet(data_list, worker_name):
 # ==========================================
 def get_data_bulldozer(target_url, max_pages=10):
     brand_text, review_list, pot_imgs, p_name = "", [], [], "상품명 수집 불가"
-    status_container.info(f"🚀 (1/3) 대상 서버 접속 및 데이터 수집 중...")
     options = Options()
     options.binary_location = "/usr/bin/chromium" 
     options.add_argument('--headless') 
@@ -178,7 +177,6 @@ def get_data_bulldozer(target_url, max_pages=10):
             brand_text = driver.find_element(By.TAG_NAME, 'body').text.strip()[:5000]
         except: pass
 
-        status_container.info(f"🤖 (2/3) 고객 리뷰 분석 및 수집 중 (최대 {max_pages}P)...")
         if "xexymix.com" in target_url:
             p_code = parse_qs(urlparse(target_url).query).get('branduid', [''])[0]
             if p_code:
@@ -192,7 +190,7 @@ def get_data_bulldozer(target_url, max_pages=10):
                         review_list.append(content)
                     except: break
         else: review_list.append(brand_text[1000:4000])
-    except Exception as e: status_container.error(f"⚠️ 시스템 오류: {e}")
+    except Exception as e: pass
     finally:
         try: driver.quit()
         except: pass
@@ -202,9 +200,6 @@ def get_data_bulldozer(target_url, max_pages=10):
 # [4. AI 분석 엔진]
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type, copy_style, product_url, product_name, user_ref_copy):
-    status_container.info(f"🧠 (3/3) AI가 핵심 USP를 도출하고 있습니다...")
-    
-    # 🔥 카피 스타일 옵션 추가 반영
     if "명사/동사" in copy_style:
         style_guide = "20자 이내, 명사/동사 종결"
     elif "세일즈" in copy_style:
@@ -312,16 +307,23 @@ def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     return "🚨 서버 지연. 잠시 후 시도하세요."
 
 # ==========================================
-# [5. 이미지 합성 및 워드클라우드 로직]
+# [5. 이미지 합성 (차단 우회 로직 적용) 및 워드클라우드]
 # ==========================================
 def create_ad_image(img_source, main_copy, sub_copy, is_file=False):
     if not img_source or img_source == "None" or str(img_source).strip() == "": return None
     try:
-        if is_file: img = Image.open(img_source).convert("RGBA")
+        if is_file: 
+            img = Image.open(img_source).convert("RGBA")
         else:
+            # 🔥 봇 차단을 뚫기 위한 강력한 크롬 브라우저 위장 헤더 적용
             clean_url = img_source.strip(' \n"\'[]')
-            req = urllib.request.Request(clean_url, headers={'User-Agent': 'Mozilla/5.0'})
-            img = Image.open(io.BytesIO(urllib.request.urlopen(req).read())).convert("RGBA")
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                'Referer': 'https://www.xexymix.com/'
+            }
+            res = requests.get(clean_url, headers=headers, timeout=10)
+            img = Image.open(io.BytesIO(res.content)).convert("RGBA")
 
         base_w = 1080
         h_size = int((float(img.size[1]) * (base_w / float(img.size[0]))))
@@ -355,7 +357,9 @@ def create_ad_image(img_source, main_copy, sub_copy, is_file=False):
         buf = io.BytesIO()
         img.convert("RGB").save(buf, format="PNG")
         return buf.getvalue()
-    except Exception as e: return None
+    except Exception as e: 
+        # 디버깅을 위해 로깅은 남기되 실패 반환
+        return None
 
 def create_wordcloud_summary(text):
     try:
@@ -372,7 +376,7 @@ def create_wordcloud_summary(text):
 # [6. 메인 UI 렌더링]
 # ==========================================
 if check_password():
-    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V14.7 Finale)")
+    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V14.8 Finale)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리"])
@@ -385,7 +389,6 @@ if check_password():
             content_type_input = st.selectbox("🎬 기획안 타겟", ["이미지+영상", "이미지", "영상", "USP만 추출"], index=3)
             copy_style_input = st.selectbox("✍️ 카피 스타일", ["명사/동사 임팩트형", "자연스러운 서술형", "USP + 세일즈 후킹형"], index=1)
             
-            # 🔥 Placeholder 변경 및 폰트 사이즈(CSS) 적용 
             user_ref_input = st.text_area("📝 캠페인 레퍼런스", placeholder="성과 좋았던 카피나 경쟁사 카피 레퍼런스를 넣어주면 반영한 카피가 추출됩니다.")
             st.markdown("---")
             
@@ -395,20 +398,27 @@ if check_password():
             max_pages_input = st.slider("📜 리뷰 수집 범위(페이지)", 10, 50, 10)
             st.caption("1페이지당 5개의 리뷰를 분석합니다 (10페이지=50개 리뷰 분석)")
         
-        status_container = st.container()
+        # 🔥 메인 분석 버튼
         if st.button("▶ 분석 시작", type="primary", use_container_width=True):
             if not worker_input or not main_url_input:
                 st.warning("⚠️ 이름과 URL을 모두 입력해 주세요.")
             else:
-                with status_container:
+                # 🔥 화면이 반투명해지며 확실한 스피너 표출
+                with st.spinner("🚀 [작업 진행 중] AI가 상세페이지와 리뷰 데이터를 수집 및 분석하고 있습니다... (약 15~30초 소요)"):
                     st.session_state.content_type = content_type_input
                     st.session_state.main_url = main_url_input
                     st.session_state.worker_name = worker_input
                     st.session_state.copy_style = copy_style_input
                     
+                    # URL에서 제품 코드 정확히 추출 (수정 완료)
+                    parsed = urlparse(main_url_input)
+                    qs = parse_qs(parsed.query)
+                    p_code_extracted = qs.get('branduid', qs.get('product_no', ['UNKNOWN']))[0]
+                    st.session_state.p_code = p_code_extracted
+                    
                     brand_txt, review_txt, pot_imgs, p_name = get_data_bulldozer(main_url_input, max_pages_input)
                     st.session_state.potential_imgs = pot_imgs
-                    st.session_state.product_name = p_name # 상품명 저장
+                    st.session_state.product_name = p_name
                     
                     res_raw, model_used = analyze_deep_usp_summarized(brand_txt, review_txt, pot_imgs, content_type_input, copy_style_input, main_url_input, p_name, user_ref_input)
                     
@@ -434,9 +444,9 @@ if check_password():
                         st.session_state.extra_copies = []
                         st.session_state.final_compiled_text = ""
                         
-                        # 1차 분석 시트 저장
+                        # 1차 분석 시트 저장 (p_code 적용)
                         kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
-                        save_to_google_sheet([kst.strftime('%Y-%m-%d %H:%M'), p_name, "CODE", main_url_input, res_raw], worker_input)
+                        save_to_google_sheet([kst.strftime('%Y-%m-%d %H:%M'), p_name, st.session_state.p_code, main_url_input, res_raw], worker_input)
                         st.toast("✅ 분석 완료!")
 
         # ------------------------------------------
@@ -454,7 +464,7 @@ if check_password():
                 st.write("")
                 if st.button("➕ 8개 추가", use_container_width=True):
                     if ex_req:
-                        with st.spinner("새로운 카피 추출 중..."):
+                        with st.spinner("⏳ 새로운 카피를 추출하는 중입니다..."):
                             new_c = generate_extra_copies(st.session_state.main_report_text, ex_req, st.session_state.copy_style, st.session_state.user_ref_copy)
                             st.session_state.extra_copies.append({"req": ex_req, "res": new_c})
             
@@ -486,7 +496,7 @@ if check_password():
                     
                     if st.button("🖼️ 이미지 시안 생성"):
                         # 🔥 이미지 생성 시 뚜렷한 로딩 피드백 (스피너) 적용
-                        with st.spinner("⏳ 이미지 시안을 생성하는 중입니다... 화면을 이동하지 마세요."):
+                        with st.spinner("⏳ 이미지 시안을 합성하는 중입니다... 잠시만 기다려주세요."):
                             src = u_f if ad_mode == "📁 직접 사진 업로드" else st.session_state.extracted_img_url
                             
                             if (not src or src == "None") and ad_mode == "🤖 AI 추출 이미지":
@@ -497,7 +507,7 @@ if check_password():
                             else: 
                                 st.session_state.ad_img = create_ad_image(src, m_c, s_c, is_file=(ad_mode=="📁 직접 사진 업로드"))
                                 if st.session_state.ad_img is None:
-                                    st.error("이미지 생성에 실패했습니다. 이미지 URL 문제일 수 있으니 직접 업로드해보세요.")
+                                    st.error("이미지 원본 다운로드에 실패했습니다. 젝시믹스 서버가 이미지 접근을 차단했을 수 있으니, 이미지를 PC에 저장 후 [직접 사진 업로드]를 이용해주세요.")
                                 else:
                                     st.success("이미지 시안 생성 완료!")
                                     
@@ -519,9 +529,9 @@ if check_password():
                     final += f"\n[광고 소재 기획안]\n{df_to_md_table(st.session_state.ad_plan_df)}"
                 st.session_state.final_compiled_text = final
                 
-                # 🔥 최종본 시트 2차 적재 (합치기 버튼 누를 때)
+                # 🔥 최종본 시트 2차 적재 (p_code 적용)
                 kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
-                save_to_google_sheet([kst.strftime('%Y-%m-%d %H:%M'), f"[최종 취합본] {st.session_state.product_name}", "FINAL", st.session_state.main_url, final], st.session_state.worker_name)
+                save_to_google_sheet([kst.strftime('%Y-%m-%d %H:%M'), f"[최종 취합본] {st.session_state.product_name}", st.session_state.p_code, st.session_state.main_url, final], st.session_state.worker_name)
                 st.success("✅ 최종 결과물이 정리되었으며, 구글 시트에도 안전하게 추가 적재되었습니다!")
             
             if st.session_state.final_compiled_text:
@@ -536,4 +546,4 @@ if check_password():
             if sel_ws:
                 st.dataframe(ss.worksheet(sel_ws).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>Internal Marketing Tool V14.7 (UX Optimized)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>Internal Marketing Tool V14.8 (Bug Fix & UX Upgrade)</center>", unsafe_allow_html=True)
