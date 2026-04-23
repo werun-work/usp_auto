@@ -28,7 +28,7 @@ import pandas as pd
 # ==========================================
 # [1. 초기 세팅 및 세션 관리]
 # ==========================================
-st.set_page_config(page_title="AI USP 추출 솔루션", page_icon=":dart:", layout="wide")
+st.set_page_config(page_title="마케팅 USP & 카피 자동 추출기", page_icon=":dart:", layout="wide")
 
 st.markdown("""
     <style>
@@ -315,10 +315,13 @@ def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     [규칙]: {ai_instruction}
     """
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
-    for attempt in range(5):
-        for m in ['gemini-3.1-flash', 'gemini-2.5-flash', 'gemini-1.5-flash-latest']:
+    
+    # 🔥 동일한 Fallback 모델 리스트 적용 및 재시도 로직 강화
+    fallback_models = ['gemini-3.1-pro', 'gemini-3.1-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-pro', 'gemini-2.5-flash']
+    for attempt in range(7):
+        for m in fallback_models:
             try: return client.models.generate_content(model=m, contents=prompt).text
-            except: time.sleep(1); continue
+            except: time.sleep(1.5); continue
     return "🚨 서버 폭주로 추출에 실패했습니다. 잠시 후 다시 시도해주세요."
 
 # ==========================================
@@ -351,10 +354,13 @@ def generate_compare_copy(base_report, cmp_style):
     [제품 USP 분석]: {base_report[:2000]}
     """
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
-    for attempt in range(5):
-        for m in ['gemini-3.1-flash', 'gemini-2.5-flash']:
+    
+    # 🔥 동일한 Fallback 모델 리스트 적용 및 재시도 로직 강화
+    fallback_models = ['gemini-3.1-pro', 'gemini-3.1-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-pro', 'gemini-2.5-flash']
+    for attempt in range(7):
+        for m in fallback_models:
             try: return client.models.generate_content(model=m, contents=prompt).text
-            except: time.sleep(1); continue
+            except: time.sleep(1.5); continue
     return "🚨 추출 실패"
 
 # ==========================================
@@ -491,7 +497,7 @@ if check_password():
             content_type_input = st.selectbox("🎬 기획안 타겟", ["이미지+영상", "이미지", "영상", "USP만 추출"], index=3)
             copy_style_input = st.selectbox("✍️ 카피 스타일", ["명사/동사 임팩트형", "자연스러운 서술형", "USP + 세일즈 후킹형"], index=1)
             
-            # 🔥 1. 캠페인 레퍼런스 안내 문구 Placeholder로 이동 및 외부 설명 삭제 완벽 반영
+            # 🔥 1. 캠페인 레퍼런스 설명 문구 Placeholder 내 표기
             st.markdown("<p style='font-size:14px; font-weight:600; margin-bottom:0px;'>📝 캠페인 레퍼런스</p>", unsafe_allow_html=True)
             user_ref_input = st.text_area("캠페인 레퍼런스", placeholder="(선택 사항) 성과 좋았던 카피나 경쟁사 카피 레퍼런스를 넣어주면 반영한 카피가 추출됩니다.\n미기재해도 추출에 문제 없습니다.", label_visibility="collapsed")
             
@@ -500,7 +506,7 @@ if check_password():
             st.markdown("<p style='font-size:12px; color:gray; margin-top:0px; margin-bottom:5px;'>URL 입력 시 제품 코드 부분까지만 기입해 주세요<br>예: https://www.xexymix.com/shop/shopdetail.html?branduid=2077700</p>", unsafe_allow_html=True)
             main_url_input = st.text_input("상품 URL", label_visibility="collapsed")
             
-            # 🔥 2. 리뷰 수집 범위 안내 문구 추가 텍스트 반영
+            # 🔥 2. 리뷰 수집 범위 설명 문구 변경
             st.markdown("<br><p style='font-size:14px; font-weight:600; margin-bottom:0px;'>📜 리뷰 수집 범위(페이지)</p>", unsafe_allow_html=True)
             st.markdown("<p style='font-size:12px; color:gray; margin-top:0px; margin-bottom:5px;'>1페이지당 5개의 리뷰를 분석합니다 (10페이지=50개 리뷰 분석) *보다 좋은 USP 추출을 위해 가급적 5~20 범위 설정을 권장드립니다</p>", unsafe_allow_html=True)
             max_pages_input = st.slider("리뷰 수집 범위", 1, 50, 1, label_visibility="collapsed")
