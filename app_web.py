@@ -29,10 +29,12 @@ import pandas as pd
 # ==========================================
 st.set_page_config(page_title="AI USP 추출 솔루션", page_icon=":dart:", layout="wide")
 
-# 🔥 텍스트 에어리어 Placeholder 및 UI 보정 CSS
+# 🔥 텍스트 에어리어 Placeholder 폰트 사이즈 조절 CSS
 st.markdown("""
     <style>
-    textarea::placeholder { font-size: 13px !important; }
+    textarea::placeholder {
+        font-size: 13px !important;
+    }
     .vertical-line { border-left: 2px solid #e6e6e6; height: 100%; min-height: 400px; margin: 0 auto; }
     </style>
 """, unsafe_allow_html=True)
@@ -193,12 +195,19 @@ def get_data_bulldozer(target_url, max_pages=10):
     finally:
         try: driver.quit()
         except: pass
-    return brand_text, "\n".join(review_list)[:30000], pot_imgs, p_name 
+    return brand_text, "\n".join(review_list)[:30000], pot_imgs[:20], p_name 
 
 # ==========================================
 # [4. AI 분석 엔진]
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type, copy_style, product_url, product_name, user_ref_copy):
+    if "명사/동사" in copy_style:
+        style_guide = "20자 이내, 명사/동사 종결"
+    elif "세일즈" in copy_style:
+        style_guide = "20자 이내, 제품의 핵심 USP와 할인/혜택 등을 강조하여 당장 구매하고 싶게 만드는 세일즈 후킹형"
+    else:
+        style_guide = "20자 이내, 자연스러운 서술형"
+    
     ref_section = """
     [자사 베스트 카피 레퍼런스]
     - 입는 순간 -5kg, 마법의 슬림핏
@@ -279,7 +288,7 @@ def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type,
     return f"🚨 [전체 서버 폭주] 10~20초 뒤 다시 시도해 주세요.\n상세 에러: {last_error}", None
 
 # ==========================================
-# [추가 카피 무한 생성기 (A/B 테스트용 분리)]
+# [추가 카피 무한 생성기] 🔥 5회 재시도 (에러 방어)
 # ==========================================
 def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     if "명사/동사" in copy_style:
@@ -299,12 +308,21 @@ def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     [스타일]: {style}
     """
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
-    for model_name in ['gemini-3.1-flash', 'gemini-2.5-flash', 'gemini-1.5-flash-latest']:
-        try: return client.models.generate_content(model=model_name, contents=prompt).text
-        except: time.sleep(0.5); continue
-    return "🚨 서버 지연. 잠시 후 시도하세요."
+    models = ['gemini-3.1-flash', 'gemini-2.5-flash', 'gemini-1.5-flash-latest']
+    
+    # 🔥 5번 재시도 (사용자 모르게 백그라운드에서 끈질기게 시도)
+    for attempt in range(5):
+        for m in models:
+            try: 
+                return client.models.generate_content(model=m, contents=prompt).text
+            except: 
+                time.sleep(1)
+                continue
+    return "🚨 5회 재시도에도 불구하고 서버 폭주로 추출에 실패했습니다. 잠시 후 다시 시도해주세요."
 
-# 🔥 3번 카피 전용 비교 추출 함수 (카피 단어 제거 통제 적용)
+# ==========================================
+# [비교 카피 추출기] 🔥 5회 재시도 및 카피 단어 금지
+# ==========================================
 def generate_compare_copy(base_report, cmp_style):
     prompt = f"""
     당신은 카피라이터입니다. 절대 서론 없이 리스트만 출력하세요.
@@ -326,18 +344,31 @@ def generate_compare_copy(base_report, cmp_style):
     [제품 USP 분석]: {base_report[:2000]}
     """
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
-    for m in ['gemini-3.1-flash', 'gemini-2.5-flash']:
-        try: return client.models.generate_content(model=m, contents=prompt).text
-        except: time.sleep(0.5)
-    return "🚨 추출 실패"
+    models = ['gemini-3.1-flash', 'gemini-2.5-flash']
+    
+    # 🔥 5번 재시도
+    for attempt in range(5):
+        for m in models:
+            try: 
+                return client.models.generate_content(model=m, contents=prompt).text
+            except: 
+                time.sleep(1)
+                continue
+    return "🚨 5회 재시도에도 불구하고 서버 폭주로 추출에 실패했습니다. 잠시 후 다시 시도해주세요."
 
 # ==========================================
-# [5. 이미지 합성 및 워드클라우드]
+# [5. 이미지 합성 (클립보드 방식) 및 워드클라우드] 🔥 is_file 파라미터 복구 완료
 # ==========================================
-def create_ad_image(img_file, main_copy, sub_copy):
-    if not img_file: return None
+def create_ad_image(img_source, main_copy, sub_copy, is_file=False):
+    if not img_source or img_source == "None" or str(img_source).strip() == "": return None
     try:
-        img = Image.open(img_file).convert("RGBA")
+        if is_file: 
+            img = Image.open(img_source).convert("RGBA")
+        else:
+            clean_url = img_source.strip(' \n"\'[]')
+            req = urllib.request.Request(clean_url, headers={'User-Agent': 'Mozilla/5.0'})
+            img = Image.open(io.BytesIO(urllib.request.urlopen(req).read())).convert("RGBA")
+
         base_w = 1080
         h_size = int((float(img.size[1]) * (base_w / float(img.size[0]))))
         img = img.resize((base_w, h_size), Image.Resampling.LANCZOS)
@@ -370,7 +401,8 @@ def create_ad_image(img_file, main_copy, sub_copy):
         buf = io.BytesIO()
         img.convert("RGB").save(buf, format="PNG")
         return buf.getvalue()
-    except Exception as e: return None
+    except Exception as e: 
+        return None
 
 def create_wordcloud_summary(text):
     try:
@@ -387,7 +419,7 @@ def create_wordcloud_summary(text):
 # [6. 메인 UI 렌더링]
 # ==========================================
 if check_password():
-    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V15.1 Finale)")
+    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V15.2 Finale)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리"])
@@ -423,7 +455,7 @@ if check_password():
                     st.session_state.main_url = main_url_input
                     st.session_state.worker_name = worker_input
                     st.session_state.copy_style = copy_style_input
-                    st.session_state.compare_copy_list = [] # 비교 내역 초기화
+                    st.session_state.compare_copy_list = [] 
                     
                     parsed = urlparse(main_url_input)
                     qs = parse_qs(parsed.query)
@@ -431,6 +463,7 @@ if check_password():
                     
                     brand_txt, review_txt, pot_imgs, p_name = get_data_bulldozer(main_url_input, max_pages_input)
                     st.session_state.product_name = p_name
+                    st.session_state.potential_imgs = pot_imgs
                     
                     res_raw, model_used = analyze_deep_usp_summarized(brand_txt, review_txt, pot_imgs, content_type_input, copy_style_input, main_url_input, p_name, user_ref_input)
                     
@@ -467,7 +500,6 @@ if check_password():
             st.markdown("---")
             st.markdown(f"<span style='font-size:13px; color:gray;'>(ver. {st.session_state.used_model_version})</span>", unsafe_allow_html=True)
             
-            # 🔥 바뀐 타이틀 명칭에 맞게 분할
             split_keyword = f"### 🎯 3. 카피라이팅 추출 ({st.session_state.copy_style})"
             
             if split_keyword in st.session_state.main_report_text:
@@ -503,12 +535,10 @@ if check_password():
                     if st.button("✨ 비교 추출하기", use_container_width=True):
                         with st.spinner("⏳ 비교용 카피를 추출하는 중입니다..."):
                             cmp_res = generate_compare_copy(st.session_state.main_report_text, cmp_style)
-                            # 🔥 기존 내역을 덮어씌우지 않고 리스트에 계속 추가(누적)
                             st.session_state.compare_copy_list.append({"style": cmp_style, "res": cmp_res})
                             
                     if st.session_state.compare_copy_list:
                         st.success("추출 완료!")
-                        # 🔥 누적된 비교본을 접을 수 있는 형태(Expander)로 모두 보여줌
                         for idx, cmp in enumerate(reversed(st.session_state.compare_copy_list)):
                             with st.expander(f"🎯 3. 카피라이팅 추출 ({cmp['style']}) - #{len(st.session_state.compare_copy_list)-idx}", expanded=(idx==0)):
                                 st.markdown(cmp['res'])
@@ -543,22 +573,31 @@ if check_password():
                 st.markdown("<br>### 🖼️ 2. 광고 시안 제작 (선택)", unsafe_allow_html=True)
                 col_ad1, col_ad2 = st.columns(2)
                 with col_ad1:
+                    ad_mode = st.radio("시안 제작 방식", ["🤖 AI 추출 이미지", "📁 직접 사진 업로드"])
                     m_c = st.text_input("합성할 메인 카피")
                     s_c = st.text_input("합성할 서브 카피")
                     
-                    # 🔥 Ctrl+V 입력 영역 명확화 안내
+                    # 🔥 Ctrl+V 입력 기능 완벽 지원
                     st.markdown("**🖼️ 상품 이미지 업로드 (Ctrl+V 지원)**")
-                    st.caption("👇 **아래의 회색 점선 박스 안을 마우스로 한 번 클릭한 후, `Ctrl + V`**를 누르면 캡처한 이미지가 바로 붙여넣기 됩니다.")
+                    st.caption("👇 **아래의 회색 점선 박스 안을 마우스로 한 번 클릭한 후, `Ctrl + V`**를 누르면 복사한 이미지가 바로 붙여넣기 됩니다.")
                     u_f = st.file_uploader("이미지 업로드 영역", label_visibility="collapsed", type=["jpg", "jpeg", "png"])
                     
                     if st.button("🖼️ 이미지 시안 생성"):
                         with st.spinner("⏳ 이미지 시안을 합성하는 중입니다... 잠시만 기다려주세요."):
-                            if not u_f: 
-                                st.warning("이미지를 업로드하거나 붙여넣기(Ctrl+V) 해주세요.")
+                            # 🔥 TypeError의 주범이었던 is_file 파라미터 복구 적용 완료!
+                            src = u_f if ad_mode == "📁 직접 사진 업로드" else st.session_state.extracted_img_url
+                            
+                            if (not src or src == "None") and ad_mode == "🤖 AI 추출 이미지":
+                                src = st.session_state.potential_imgs[0] if st.session_state.potential_imgs else None
+                                
+                            if not src: 
+                                st.warning("적합한 이미지를 찾지 못했습니다. 직접 업로드 방식을 사용해주세요.")
                             else: 
-                                st.session_state.ad_img = create_ad_image(u_f, m_c, s_c, is_file=True)
-                                if st.session_state.ad_img is None: st.error("이미지 생성에 실패했습니다.")
-                                else: st.success("이미지 시안 생성 완료!")
+                                st.session_state.ad_img = create_ad_image(src, m_c, s_c, is_file=(ad_mode=="📁 직접 사진 업로드"))
+                                if st.session_state.ad_img is None:
+                                    st.error("이미지 생성에 실패했습니다. 다른 이미지를 업로드해보세요.")
+                                else:
+                                    st.success("이미지 시안 생성 완료!")
                                     
                 with col_ad2:
                     if st.session_state.ad_img:
@@ -572,7 +611,6 @@ if check_password():
             if st.button("🚀 모든 내용 하나로 합치기", use_container_width=True):
                 final = f"{st.session_state.main_report_text}\n\n"
                 
-                # 🔥 비교 카피가 있다면 취합본에도 반영
                 if st.session_state.compare_copy_list:
                     final += "[비교 추출된 카피 내역]\n"
                     for cmp in reversed(st.session_state.compare_copy_list):
@@ -585,7 +623,7 @@ if check_password():
                     final += f"\n[광고 소재 기획안]\n{df_to_md_table(st.session_state.ad_plan_df)}"
                 st.session_state.final_compiled_text = final
                 
-                kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+                kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9) if 'timedelta' in globals() else datetime.datetime.utcnow() + datetime.timedelta(hours=9)
                 save_to_google_sheet([kst.strftime('%Y-%m-%d %H:%M'), f"[최종 취합본] {st.session_state.product_name}", st.session_state.p_code, st.session_state.main_url, final], st.session_state.worker_name)
                 st.success("✅ 최종 결과물이 정리되었으며, 구글 시트에도 안전하게 추가 적재되었습니다!")
             
@@ -601,4 +639,4 @@ if check_password():
             if sel_ws:
                 st.dataframe(ss.worksheet(sel_ws).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>Internal Marketing Tool V15.1 (UI Detail Optimized)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>Internal Marketing Tool V15.2 (Critical Bug Fixed & Retry Enhanced)</center>", unsafe_allow_html=True)
