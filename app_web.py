@@ -382,7 +382,7 @@ if check_password():
             copy_style_input = st.selectbox("✍️ 카피 스타일", ["명사/동사 임팩트형", "자연스러운 서술형", "USP + 세일즈 후킹형"], index=1)
             
             # 🔥 사이드바 위치 및 안내문구 최적화
-            st.markdown("<p style='font-size:14px; font-weight:600; margin-bottom:0px;'>📝 캠페인 레퍼런스 (선택 사항)</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size:14px; font-weight:600; margin-bottom:0px;'>📝 캠페인 레퍼런스</p>", unsafe_allow_html=True)
             st.markdown("<p style='font-size:12px; color:gray; margin-top:0px; margin-bottom:5px;'>성과 좋았던 카피나 경쟁사 카피 레퍼런스를 넣어주면 반영한 카피가 추출됩니다.</p>", unsafe_allow_html=True)
             user_ref_input = st.text_area("캠페인 레퍼런스", label_visibility="collapsed")
             
