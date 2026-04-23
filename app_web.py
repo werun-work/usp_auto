@@ -29,7 +29,7 @@ import pandas as pd
 # ==========================================
 st.set_page_config(page_title="AI USP 추출 솔루션", page_icon=":dart:", layout="wide")
 
-# 🔥 텍스트 에어리어 Placeholder 폰트 사이즈 조절 CSS
+# 🔥 텍스트 에어리어 Placeholder 폰트 사이즈 조절 및 세로선 CSS
 st.markdown("""
     <style>
     textarea::placeholder {
@@ -54,12 +54,12 @@ if 'authenticated' not in st.session_state:
 session_keys = [
     'analyzed', 'main_report_text', 'ad_plan_df', 'wc_img', 'ad_img', 
     'filename_base', 'main_url', 'worker_name', 'content_type', 'copy_style', 
-    'user_ref_copy', 'extracted_img_url', 'extra_copies', 'final_compiled_text',
-    'used_model_version', 'potential_imgs', 'product_name', 'p_code', 'compare_copy_list'
+    'user_ref_copy', 'extra_copies', 'final_compiled_text',
+    'used_model_version', 'product_name', 'p_code', 'compare_copy_list'
 ]
 for key in session_keys:
     if key not in st.session_state:
-        if key in ['extra_copies', 'potential_imgs', 'compare_copy_list']: st.session_state[key] = []
+        if key in ['extra_copies', 'compare_copy_list']: st.session_state[key] = []
         elif key == 'ad_plan_df': st.session_state[key] = None
         elif 'img' in key: st.session_state[key] = None
         else: st.session_state[key] = ""
@@ -144,7 +144,7 @@ def save_to_google_sheet(data_list, worker_name):
 # [3. 데이터 수집 엔진]
 # ==========================================
 def get_data_bulldozer(target_url, max_pages=10):
-    brand_text, review_list, pot_imgs, p_name = "", [], [], "상품명 수집 불가"
+    brand_text, review_list, p_name = "", [], "상품명 수집 불가"
     options = Options()
     options.binary_location = "/usr/bin/chromium" 
     options.add_argument('--headless') 
@@ -159,14 +159,6 @@ def get_data_bulldozer(target_url, max_pages=10):
             res = requests.get(target_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
             soup = BeautifulSoup(res.text, 'html.parser')
             p_name = soup.find('meta', property='og:title')['content'].strip() if soup.find('meta', property='og:title') else soup.title.text.strip()
-            og_img = soup.find('meta', property='og:image')
-            if og_img: pot_imgs.append(og_img['content'])
-            for img in soup.find_all('img'):
-                src = img.get('src', '') or img.get('data-src', '')
-                if not src or any(x in src.lower() for x in ['logo', 'icon', 'btn', 'gif']): continue
-                if src.startswith('//'): src = 'https:' + src
-                elif src.startswith('/'): src = f"https://{urlparse(target_url).netloc}{src}"
-                if src not in pot_imgs: pot_imgs.append(src)
         except: pass
 
         service = Service("/usr/bin/chromedriver") 
@@ -195,18 +187,18 @@ def get_data_bulldozer(target_url, max_pages=10):
     finally:
         try: driver.quit()
         except: pass
-    return brand_text, "\n".join(review_list)[:30000], pot_imgs[:20], p_name 
+    return brand_text, "\n".join(review_list)[:30000], p_name 
 
 # ==========================================
-# [4. AI 분석 엔진]
+# [4. AI 분석 엔진] 🔥 20자 이내 규칙 및 서론 제거 강화
 # ==========================================
-def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type, copy_style, product_url, product_name, user_ref_copy):
+def analyze_deep_usp_summarized(brand_text, review_text, content_type, copy_style, product_url, product_name, user_ref_copy):
     if "명사/동사" in copy_style:
-        style_guide = "20자 이내, 명사/동사 종결"
+        style_guide = "반드시 공백 포함 20자 이내, 명사/동사 종결"
     elif "세일즈" in copy_style:
-        style_guide = "20자 이내, 제품의 핵심 USP와 할인/혜택 등을 강조하여 당장 구매하고 싶게 만드는 세일즈 후킹형"
+        style_guide = "반드시 공백 포함 20자 이내, 제품의 핵심 USP와 할인/혜택 등을 강조하는 세일즈 후킹형"
     else:
-        style_guide = "20자 이내, 자연스러운 서술형"
+        style_guide = "반드시 공백 포함 20자 이내, 자연스러운 서술형"
     
     ref_section = """
     [자사 베스트 카피 레퍼런스]
@@ -250,6 +242,7 @@ def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type,
     * **[대표 리뷰]**: (고객의 생생한 반응을 담은 한 마디)
 
     ### 🎯 3. 카피라이팅 추출 ({copy_style})
+    *모든 카피는 반드시 공백을 포함하여 20자를 절대 넘지 않도록 강력히 압축하세요.*
     1. [추천/만족형] (카피내용 작성)
     2. [시간 단축형] (카피내용 작성)
     3. [시각 보정형] (카피내용 작성)
@@ -259,7 +252,6 @@ def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type,
     7. [사회적 증거형] (카피내용 작성)
     8. [불만 해결형] (카피내용 작성)
 
-    [SELECTED_IMAGE_URL]{pot_imgs[0] if pot_imgs else "None"}[/SELECTED_IMAGE_URL]
     [AD_PLAN_START]
     | 구분 | 내용 |
     |---|---|
@@ -288,15 +280,15 @@ def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type,
     return f"🚨 [전체 서버 폭주] 10~20초 뒤 다시 시도해 주세요.\n상세 에러: {last_error}", None
 
 # ==========================================
-# [추가 카피 무한 생성기] 🔥 5회 재시도 (에러 방어)
+# [추가 카피 무한 생성기] 🔥 5회 재시도 & 20자 규약 강제
 # ==========================================
 def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     if "명사/동사" in copy_style:
-        style = "각 20자 이내, 임팩트형(명사/동사 종결)"
+        style = "반드시 공백 포함 20자 이내, 임팩트형(명사/동사 종결)"
     elif "세일즈" in copy_style:
-        style = "각 20자 이내, 제품의 핵심 USP와 혜택을 강조하는 세일즈 후킹형"
+        style = "반드시 공백 포함 20자 이내, 제품의 핵심 USP와 혜택을 강조하는 세일즈 후킹형"
     else:
-        style = "각 20자 이내, 자연스러운 서술형"
+        style = "반드시 공백 포함 20자 이내, 자연스러운 서술형"
 
     prompt = f"""
     당신은 카피라이터입니다. 절대 서론이나 기존 분석내용을 재출력하지 마세요.
@@ -305,12 +297,11 @@ def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     
     [제품 USP 참고용]: {base_report[:2000]}
     [추가 요청사항]: {user_req}
-    [스타일]: {style}
+    [스타일 규칙]: {style}
     """
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
     models = ['gemini-3.1-flash', 'gemini-2.5-flash', 'gemini-1.5-flash-latest']
     
-    # 🔥 5번 재시도 (사용자 모르게 백그라운드에서 끈질기게 시도)
     for attempt in range(5):
         for m in models:
             try: 
@@ -321,15 +312,23 @@ def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     return "🚨 5회 재시도에도 불구하고 서버 폭주로 추출에 실패했습니다. 잠시 후 다시 시도해주세요."
 
 # ==========================================
-# [비교 카피 추출기] 🔥 5회 재시도 및 카피 단어 금지
+# [비교 카피 추출기] 🔥 5회 재시도 & 20자 & 카피단어 금지 강제
 # ==========================================
 def generate_compare_copy(base_report, cmp_style):
+    if "명사/동사" in cmp_style:
+        style_detail = "반드시 공백 포함 20자 이내, 명사/동사 종결"
+    elif "세일즈" in cmp_style:
+        style_detail = "반드시 공백 포함 20자 이내, 제품의 핵심 USP와 혜택을 강조하는 세일즈 후킹형"
+    else:
+        style_detail = "반드시 공백 포함 20자 이내, 자연스러운 서술형"
+
     prompt = f"""
     당신은 카피라이터입니다. 절대 서론 없이 리스트만 출력하세요.
     아래 [제품 USP 분석]을 바탕으로, '{cmp_style}' 스타일에 맞춰 가장 매력적인 후킹 카피 8개를 도출하세요.
     
-    [매우 중요한 규칙]
-    대괄호 [ ] 뒤에 "카피"라는 단어를 절대 적지 마세요! (예: 1. [추천/만족형] 시원해서 매일 입어요)
+    [매우 중요한 2가지 절대 규칙]
+    1. 대괄호 [ ] 뒤에 "카피"라는 단어를 절대 적지 마세요! (예: 1. [추천/만족형] 시원해서 매일 입어요)
+    2. 모든 카피는 반드시 공백을 포함하여 20자를 절대 넘지 않게 작성하세요.
     
     [형식]
     1. [추천/만족형] (내용)
@@ -346,7 +345,6 @@ def generate_compare_copy(base_report, cmp_style):
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
     models = ['gemini-3.1-flash', 'gemini-2.5-flash']
     
-    # 🔥 5번 재시도
     for attempt in range(5):
         for m in models:
             try: 
@@ -357,17 +355,15 @@ def generate_compare_copy(base_report, cmp_style):
     return "🚨 5회 재시도에도 불구하고 서버 폭주로 추출에 실패했습니다. 잠시 후 다시 시도해주세요."
 
 # ==========================================
-# [5. 이미지 합성 (클립보드 방식) 및 워드클라우드] 🔥 is_file 파라미터 복구 완료
+# [5. 이미지 합성 (클립보드 전용) 및 워드클라우드] 
 # ==========================================
-def create_ad_image(img_source, main_copy, sub_copy, is_file=False):
-    if not img_source or img_source == "None" or str(img_source).strip() == "": return None
+def create_ad_image(img_file, main_copy, sub_copy):
+    # 🔥 AI 추천 이미지 삭제로 인하여 무조건 img_file(업로드 파일) 객체만 처리함
+    if not img_file: return None
     try:
-        if is_file: 
-            img = Image.open(img_source).convert("RGBA")
-        else:
-            clean_url = img_source.strip(' \n"\'[]')
-            req = urllib.request.Request(clean_url, headers={'User-Agent': 'Mozilla/5.0'})
-            img = Image.open(io.BytesIO(urllib.request.urlopen(req).read())).convert("RGBA")
+        # Streamlit의 UploadedFile 객체를 바이트로 읽어서 Image로 오픈
+        img_bytes = img_file.getvalue()
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
 
         base_w = 1080
         h_size = int((float(img.size[1]) * (base_w / float(img.size[0]))))
@@ -419,7 +415,7 @@ def create_wordcloud_summary(text):
 # [6. 메인 UI 렌더링]
 # ==========================================
 if check_password():
-    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V15.2 Finale)")
+    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V15.3 Finale)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리"])
@@ -461,11 +457,10 @@ if check_password():
                     qs = parse_qs(parsed.query)
                     st.session_state.p_code = qs.get('branduid', qs.get('product_no', ['UNKNOWN']))[0]
                     
-                    brand_txt, review_txt, pot_imgs, p_name = get_data_bulldozer(main_url_input, max_pages_input)
+                    brand_txt, review_txt, p_name = get_data_bulldozer(main_url_input, max_pages_input)
                     st.session_state.product_name = p_name
-                    st.session_state.potential_imgs = pot_imgs
                     
-                    res_raw, model_used = analyze_deep_usp_summarized(brand_txt, review_txt, pot_imgs, content_type_input, copy_style_input, main_url_input, p_name, user_ref_input)
+                    res_raw, model_used = analyze_deep_usp_summarized(brand_txt, review_txt, content_type_input, copy_style_input, main_url_input, p_name, user_ref_input)
                     
                     if "🚨" not in res_raw:
                         st.session_state.used_model_version = model_used
@@ -477,11 +472,6 @@ if check_password():
                         
                         if "이미지" in content_type_input and st.session_state.ad_plan_df is None:
                             st.session_state.ad_plan_df = create_default_ad_plan(p_name, main_url_input)
-                        
-                        img_m = re.search(r'\[SELECTED_IMAGE_URL\](.*?)\[/SELECTED_IMAGE_URL\]', res_raw, re.DOTALL)
-                        if img_m:
-                            st.session_state.extracted_img_url = img_m.group(1).strip()
-                            res_raw = res_raw.replace(img_m.group(0), "").replace("[SELECTED_IMAGE_URL]", "").replace("[/SELECTED_IMAGE_URL]", "")
                         
                         st.session_state.main_report_text = res_raw.strip()
                         st.session_state.wc_img = create_wordcloud_summary(review_txt)
@@ -555,7 +545,6 @@ if check_password():
                     with st.expander(f"💬 추가 추출 #{idx+1} (요청: {ex['req']})", expanded=True):
                         st.markdown(ex['res'])
 
-            # 기획안 영역
             if "이미지" in st.session_state.content_type:
                 st.markdown("<br>### 📋 1. 광고 소재 기획안 수정 (표 형식 유지)", unsafe_allow_html=True)
                 with st.form("ad_plan_form"):
@@ -573,29 +562,22 @@ if check_password():
                 st.markdown("<br>### 🖼️ 2. 광고 시안 제작 (선택)", unsafe_allow_html=True)
                 col_ad1, col_ad2 = st.columns(2)
                 with col_ad1:
-                    ad_mode = st.radio("시안 제작 방식", ["🤖 AI 추출 이미지", "📁 직접 사진 업로드"])
                     m_c = st.text_input("합성할 메인 카피")
                     s_c = st.text_input("합성할 서브 카피")
                     
-                    # 🔥 Ctrl+V 입력 기능 완벽 지원
+                    # 🔥 이제 파일 업로드(Ctrl+V) 방식만 고정 노출합니다.
                     st.markdown("**🖼️ 상품 이미지 업로드 (Ctrl+V 지원)**")
                     st.caption("👇 **아래의 회색 점선 박스 안을 마우스로 한 번 클릭한 후, `Ctrl + V`**를 누르면 복사한 이미지가 바로 붙여넣기 됩니다.")
                     u_f = st.file_uploader("이미지 업로드 영역", label_visibility="collapsed", type=["jpg", "jpeg", "png"])
                     
                     if st.button("🖼️ 이미지 시안 생성"):
                         with st.spinner("⏳ 이미지 시안을 합성하는 중입니다... 잠시만 기다려주세요."):
-                            # 🔥 TypeError의 주범이었던 is_file 파라미터 복구 적용 완료!
-                            src = u_f if ad_mode == "📁 직접 사진 업로드" else st.session_state.extracted_img_url
-                            
-                            if (not src or src == "None") and ad_mode == "🤖 AI 추출 이미지":
-                                src = st.session_state.potential_imgs[0] if st.session_state.potential_imgs else None
-                                
-                            if not src: 
-                                st.warning("적합한 이미지를 찾지 못했습니다. 직접 업로드 방식을 사용해주세요.")
+                            if not u_f: 
+                                st.warning("이미지를 업로드하거나 캡처 이미지를 붙여넣기(Ctrl+V) 해주세요.")
                             else: 
-                                st.session_state.ad_img = create_ad_image(src, m_c, s_c, is_file=(ad_mode=="📁 직접 사진 업로드"))
+                                st.session_state.ad_img = create_ad_image(u_f, m_c, s_c)
                                 if st.session_state.ad_img is None:
-                                    st.error("이미지 생성에 실패했습니다. 다른 이미지를 업로드해보세요.")
+                                    st.error("이미지 원본 처리 중 오류가 발생했습니다. 다른 캡처본을 사용해보세요.")
                                 else:
                                     st.success("이미지 시안 생성 완료!")
                                     
@@ -623,7 +605,7 @@ if check_password():
                     final += f"\n[광고 소재 기획안]\n{df_to_md_table(st.session_state.ad_plan_df)}"
                 st.session_state.final_compiled_text = final
                 
-                kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9) if 'timedelta' in globals() else datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+                kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
                 save_to_google_sheet([kst.strftime('%Y-%m-%d %H:%M'), f"[최종 취합본] {st.session_state.product_name}", st.session_state.p_code, st.session_state.main_url, final], st.session_state.worker_name)
                 st.success("✅ 최종 결과물이 정리되었으며, 구글 시트에도 안전하게 추가 적재되었습니다!")
             
@@ -639,4 +621,4 @@ if check_password():
             if sel_ws:
                 st.dataframe(ss.worksheet(sel_ws).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>Internal Marketing Tool V15.2 (Critical Bug Fixed & Retry Enhanced)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>Internal Marketing Tool V15.3 (Image Fix & Logic Hardened)</center>", unsafe_allow_html=True)
