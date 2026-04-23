@@ -188,7 +188,7 @@ def get_data_bulldozer(target_url, max_pages=10):
     return brand_text, "\n".join(review_list)[:30000], pot_imgs, p_name 
 
 # ==========================================
-# [4. AI 분석 엔진] 🔥 모호성 금지 & 1만원대 강제 & 안다르톤 반영
+# [4. AI 분석 엔진] 
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type, copy_style, product_url, product_name, user_ref_copy):
     
@@ -296,9 +296,9 @@ def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type,
 # [추가 카피 무한 생성기] 
 # ==========================================
 def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
-    base_rule = "안다르(andar)/젝시믹스 톤앤매너 최우선 반영, '이 가격?', '득템' 등 모호한 표현 절대 금지, '1만원대' 등 체감가 낮추는 표현 강제, 줄바꿈은 / 기호 사용."
+    base_rule = "안다르(andar)와 젝시믹스의 카피 톤앤매너 최우선 반영. '이 가격?', '득템' 같은 모호한 표현 강력 금지. 구체적 금액 대신 '1만원대'로 체감가 낮추는 표현 강제. 줄바꿈은 / 기호 사용."
     if "명사/동사" in copy_style: 
-        ai_instruction = f"대괄호 [유형] 제외 순수 카피 기준 공백 포함 20자 이내. {base_rule} '~하다, ~되다, ~없다' 금지. '상쾌함 계속, 땀 냄새 걱정 NO, 믿고 구매' 처럼 세련된 명사 단답형 종결."
+        ai_instruction = f"대괄호 [유형] 제외 순수 카피 기준 공백 포함 20자 이내. {base_rule} '~하다', '~되다', '~없다' 금지. '상쾌함 계속', '땀 냄새 걱정 NO', '믿고 구매' 등의 세련된 명사 단답형으로 종결할 것."
     elif "세일즈" in copy_style: 
         ai_instruction = f"대괄호 [유형] 제외 순수 카피 기준 공백 포함 25자 이내. {base_rule} 세일즈 후킹형 (최소 1개 [가격 소구형] 포함)."
     else: 
@@ -324,9 +324,9 @@ def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
 # [비교 카피 추출기] 
 # ==========================================
 def generate_compare_copy(base_report, cmp_style):
-    base_rule = "안다르(andar)/젝시믹스 톤앤매너 최우선 반영, '이 가격?', '득템' 등 모호한 표현 절대 금지, '1만원대' 등 체감가 낮추는 표현 강제, 줄바꿈은 / 기호 사용."
+    base_rule = "안다르(andar)와 젝시믹스의 카피 톤앤매너 최우선 반영. '이 가격?', '득템' 같은 모호한 표현 강력 금지. 구체적 금액 대신 '1만원대'로 체감가 낮추는 표현 강제. 줄바꿈은 / 기호 사용."
     if "명사/동사" in cmp_style: 
-        ai_instruction = f"대괄호 [유형] 제외 순수 카피 기준 공백 포함 20자 이내. {base_rule} '~하다, ~되다, ~없다' 금지. '상쾌함 계속, 땀 냄새 걱정 NO, 믿고 구매' 처럼 세련된 명사 단답형 종결."
+        ai_instruction = f"대괄호 [유형] 제외 순수 카피 기준 공백 포함 20자 이내. {base_rule} '~하다', '~되다', '~없다' 금지. '상쾌함 계속', '땀 냄새 걱정 NO', '믿고 구매' 등의 세련된 명사 단답형으로 종결할 것."
     elif "세일즈" in cmp_style: 
         ai_instruction = f"대괄호 [유형] 제외 순수 카피 기준 공백 포함 25자 이내. {base_rule} 세일즈 후킹형 (최소 1개 [가격 소구형] 포함)."
     else: 
@@ -357,7 +357,7 @@ def generate_compare_copy(base_report, cmp_style):
     return "🚨 추출 실패"
 
 # ==========================================
-# [5. 이미지 합성 (업로드 파일 전용)]
+# [5. 이미지 합성 (업로드 파일 전용)] 🔥 폰트 404 다운로드 에러 완벽 해결
 # ==========================================
 def create_ad_image(img_file, main_copy, sub_copy):
     if not img_file: return None
@@ -379,9 +379,21 @@ def create_ad_image(img_file, main_copy, sub_copy):
         img = Image.alpha_composite(img, overlay)
         draw = ImageDraw.Draw(img)
 
+        # 🔥 404 에러를 유발하던 폰트 경로를 가장 안정적인 네이버 공식 폰트 웹서버로 교체
         f_b, f_r = "NanumGothicBold.ttf", "NanumGothic.ttf"
-        for f in [f_b, f_r]:
-            if not os.path.exists(f): urllib.request.urlretrieve(f"https://github.com/google/fonts/raw/main/ofl/nanumgothic/{f}", f)
+        font_urls = {
+            f_b: "https://hangeul.pstatic.net/hangeul_static/webfont/NanumGothic/NanumGothicBold.ttf",
+            f_r: "https://hangeul.pstatic.net/hangeul_static/webfont/NanumGothic/NanumGothic.ttf"
+        }
+        for f_name, url in font_urls.items():
+            if not os.path.exists(f_name):
+                try: 
+                    # 봇 차단(403/404) 방지를 위한 헤더 적용
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req) as response, open(f_name, 'wb') as out_file:
+                        out_file.write(response.read())
+                except Exception as e: 
+                    return f"ERROR: 폰트 다운로드 실패 ({str(e)})"
         
         font_m = ImageFont.truetype(f_b, 82); font_s = ImageFont.truetype(f_r, 52); font_l = ImageFont.truetype(f_b, 35)
 
@@ -415,7 +427,7 @@ def create_wordcloud_summary(text):
 # [6. 메인 UI 렌더링]
 # ==========================================
 if check_password():
-    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V16.1 Finale)")
+    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V16.2 Finale)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리"])
@@ -551,7 +563,7 @@ if check_password():
                     with st.expander(f"💬 추가 추출 #{idx+1} (요청: {ex['req']})", expanded=True):
                         st.markdown(ex['res'])
 
-            # 기획안 영역 (V15.5 완벽 이식)
+            # 기획안 영역
             if "이미지" in st.session_state.content_type:
                 st.markdown("<br>### 📋 1. 광고 소재 기획안 수정 (표 형식 유지)", unsafe_allow_html=True)
                 with st.form("ad_plan_form"):
@@ -586,14 +598,15 @@ if check_password():
                     m_c = st.text_input("합성할 메인 카피", value=def_m)
                     s_c = st.text_input("합성할 서브 카피", value=def_s)
                     
-                    st.markdown("**🖼️ 상품 이미지 업로드 (Ctrl+V 지원)**")
-                    st.info("💡 **가장 쉬운 복붙 팁:** 창이 떠도 당황하지 마세요!\n아래 **회색 점선 박스 안**을 클릭해서 파일 창이 뜨면, 그냥 창을 닫으신 뒤(취소) 바로 `Ctrl + V`를 누르시면 이미지가 쏙 들어갑니다!")
+                    st.markdown("**🖼️ 상품 이미지 업로드**")
+                    # 🔥 혼란을 주던 Ctrl+V 안내 제거 후 깔끔한 업로드 안내로 변경
+                    st.caption("👇 **[Upload] 버튼을 클릭하여 시안 배경으로 사용할 상품 이미지를 직접 첨부해 주세요.**")
                     u_f = st.file_uploader("이미지 업로드 영역", label_visibility="collapsed", type=["jpg", "jpeg", "png"])
                     
                     if st.button("🖼️ 이미지 시안 생성"):
                         with st.spinner("⏳ 이미지 시안을 합성하는 중입니다... 잠시만 기다려주세요."):
                             if not u_f: 
-                                st.warning("이미지를 업로드하거나 캡처 이미지를 붙여넣기(Ctrl+V) 해주세요.")
+                                st.warning("이미지를 업로드 해주세요.")
                             else: 
                                 img_res = create_ad_image(u_f, m_c, s_c)
                                 if isinstance(img_res, str) and img_res.startswith("ERROR:"):
@@ -644,4 +657,4 @@ if check_password():
             if sel_ws:
                 st.dataframe(ss.worksheet(sel_ws).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>Internal Marketing Tool V16.1 (Fully Restored & Fine-Tuned)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>Internal Marketing Tool V16.2 (Fully Restored & Fine-Tuned)</center>", unsafe_allow_html=True)
