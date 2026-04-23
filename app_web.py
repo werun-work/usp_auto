@@ -188,13 +188,15 @@ def get_data_bulldozer(target_url, max_pages=10):
     return brand_text, "\n".join(review_list)[:30000], pot_imgs, p_name 
 
 # ==========================================
-# [4. AI 분석 엔진]
+# [4. AI 분석 엔진] 🔥 누락되었던 pot_imgs 인수 추가 복구 완료
 # ==========================================
-def analyze_deep_usp_summarized(brand_text, review_text, content_type, copy_style, product_url, product_name, user_ref_copy):
-    # 🔥 스타일 가이드 내부 변수
-    if "명사/동사" in copy_style: style_guide = "20자 이내, 명사/동사 종결"
-    elif "세일즈" in copy_style: style_guide = "20자 이내, 핵심 USP와 할인/혜택 강조 세일즈형"
-    else: style_guide = "20자 이내, 자연스러운 서술형"
+def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type, copy_style, product_url, product_name, user_ref_copy):
+    if "명사/동사" in copy_style:
+        style_guide = "20자 이내, 명사/동사 종결"
+    elif "세일즈" in copy_style:
+        style_guide = "20자 이내, 제품의 핵심 USP와 할인/혜택 등을 강조하여 당장 구매하고 싶게 만드는 세일즈 후킹형"
+    else:
+        style_guide = "20자 이내, 자연스러운 서술형"
     
     ref_section = """
     [자사 베스트 카피 레퍼런스]
@@ -205,7 +207,7 @@ def analyze_deep_usp_summarized(brand_text, review_text, content_type, copy_styl
     """
     if user_ref_copy.strip(): ref_section += f"\n[캠페인 맞춤형 레퍼런스]\n{user_ref_copy}"
 
-    kst_now = datetime.datetime.utcnow() + timedelta(hours=9) if 'timedelta' in globals() else datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+    kst_now = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
     date_str = kst_now.strftime('%Y.%m.%d %H:%M')
 
     final_prompt = f"""
@@ -240,6 +242,7 @@ def analyze_deep_usp_summarized(brand_text, review_text, content_type, copy_styl
     ### 🎯 3. 초압축 다각도 후킹 카피 ({copy_style})
     1. [추천/만족형] 2. [시간 단축형] 3. [시각 보정형] 4. [피부/소재 공감형] 5. [가성비 증명형] 6. [상황 저격형] 7. [사회적 증거형] 8. [불만 해결형]
 
+    [SELECTED_IMAGE_URL]{pot_imgs[0] if pot_imgs else "None"}[/SELECTED_IMAGE_URL]
     [AD_PLAN_START]
     | 구분 | 내용 |
     |---|---|
@@ -368,7 +371,7 @@ def create_wordcloud_summary(text):
 # [6. 메인 UI 렌더링]
 # ==========================================
 if check_password():
-    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V14.9 Finale)")
+    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V15.0 Finale)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리"])
@@ -381,10 +384,9 @@ if check_password():
             content_type_input = st.selectbox("🎬 기획안 타겟", ["이미지+영상", "이미지", "영상", "USP만 추출"], index=3)
             copy_style_input = st.selectbox("✍️ 카피 스타일", ["명사/동사 임팩트형", "자연스러운 서술형", "USP + 세일즈 후킹형"], index=1)
             
-            # 🔥 사이드바 위치 및 안내문구 최적화
             st.markdown("<p style='font-size:14px; font-weight:600; margin-bottom:0px;'>📝 캠페인 레퍼런스</p>", unsafe_allow_html=True)
-            st.markdown("<p style='font-size:12px; color:gray; margin-top:0px; margin-bottom:5px;'>성과 좋았던 카피나 경쟁사 카피 레퍼런스를 넣어주면 반영한 카피가 추출됩니다.</p>", unsafe_allow_html=True)
-            user_ref_input = st.text_area("캠페인 레퍼런스", label_visibility="collapsed")
+            # 🔥 Placeholder 텍스트 수정 및 힌트 문구 추가 완료
+            user_ref_input = st.text_area("캠페인 레퍼런스", placeholder="성과 좋았던 카피나 경쟁사 카피 레퍼런스를 넣어주면 반영한 카피가 추출됩니다.\n(선택 사항) 미기재해도 추출에 문제 없습니다", label_visibility="collapsed")
             
             st.markdown("---")
             st.markdown("<p style='font-size:14px; font-weight:600; margin-bottom:0px;'>🔗 상품 URL</p>", unsafe_allow_html=True)
@@ -405,7 +407,7 @@ if check_password():
                     st.session_state.main_url = main_url_input
                     st.session_state.worker_name = worker_input
                     st.session_state.copy_style = copy_style_input
-                    st.session_state.compare_copy_res = None # 초기화
+                    st.session_state.compare_copy_res = None 
                     
                     parsed = urlparse(main_url_input)
                     qs = parse_qs(parsed.query)
@@ -414,6 +416,7 @@ if check_password():
                     brand_txt, review_txt, pot_imgs, p_name = get_data_bulldozer(main_url_input, max_pages_input)
                     st.session_state.product_name = p_name
                     
+                    # 🔥 누락되었던 pot_imgs 인수를 정상적으로 다시 넘겨줍니다!
                     res_raw, model_used = analyze_deep_usp_summarized(brand_txt, review_txt, pot_imgs, content_type_input, copy_style_input, main_url_input, p_name, user_ref_input)
                     
                     if "🚨" not in res_raw:
@@ -433,7 +436,7 @@ if check_password():
                         st.session_state.extra_copies = []
                         st.session_state.final_compiled_text = ""
                         
-                        kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9) if 'timedelta' in globals() else datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+                        kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
                         save_to_google_sheet([kst.strftime('%Y-%m-%d %H:%M'), p_name, st.session_state.p_code, main_url_input, res_raw], worker_input)
                         st.toast("✅ 분석 완료!")
 
@@ -444,14 +447,12 @@ if check_password():
             st.markdown("---")
             st.markdown(f"<span style='font-size:13px; color:gray;'>(ver. {st.session_state.used_model_version})</span>", unsafe_allow_html=True)
             
-            # 🔥 3번 항목 분리 렌더링 (A/B 테스트 UI 적용)
             split_keyword = f"### 🎯 3. 초압축 다각도 후킹 카피 ({st.session_state.copy_style})"
             
             if split_keyword in st.session_state.main_report_text:
                 part12, part3_raw = st.session_state.main_report_text.split(split_keyword, 1)
-                st.markdown(part12) # 1번, 2번 항목 출력
+                st.markdown(part12) 
                 
-                # 3번 항목 좌/우 분할 레이아웃
                 st.markdown("---")
                 col_left, col_line, col_right = st.columns([1, 0.05, 1])
                 
@@ -471,7 +472,7 @@ if check_password():
                         with st.expander(f"💬 추가 추출 #{idx+1} (요청: {ex['req']})", expanded=True):
                             st.markdown(ex['res'])
 
-                with col_line: # 세로 구분선
+                with col_line: 
                     st.markdown("<div class='vertical-line'></div>", unsafe_allow_html=True)
                     
                 with col_right:
@@ -488,7 +489,6 @@ if check_password():
                         st.markdown(f"### 🎯 3. 초압축 다각도 후킹 카피 ({cmp_style})")
                         st.markdown(st.session_state.compare_copy_res)
             else:
-                # 스플릿 실패 시 전체 출력 후 하단에 추가 추출기
                 st.markdown(st.session_state.main_report_text)
                 st.markdown("<br>### 💡카피라이팅 추가 추출기", unsafe_allow_html=True)
                 ex_req = st.text_input("👇 원하는 소구점/무드를 입력하면 깔끔하게 8줄만 뽑아냅니다. (예: 제품 USP 강조 + 11주년 혜택)")
@@ -519,7 +519,6 @@ if check_password():
                 st.markdown("<br>### 🖼️ 2. 광고 시안 제작 (선택)", unsafe_allow_html=True)
                 col_ad1, col_ad2 = st.columns(2)
                 with col_ad1:
-                    # 🔥 AI 추출 삭제 & 클립보드 붙여넣기(Ctrl+V) 강력 지원
                     m_c = st.text_input("합성할 메인 카피")
                     s_c = st.text_input("합성할 서브 카피")
                     u_f = st.file_uploader("🖼️ 상품 이미지 (클릭 후 Ctrl+V로 복사한 이미지 붙여넣기 가능)", type=["jpg", "jpeg", "png"])
@@ -555,7 +554,7 @@ if check_password():
                     final += f"\n[광고 소재 기획안]\n{df_to_md_table(st.session_state.ad_plan_df)}"
                 st.session_state.final_compiled_text = final
                 
-                kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9) if 'timedelta' in globals() else datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+                kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
                 save_to_google_sheet([kst.strftime('%Y-%m-%d %H:%M'), f"[최종 취합본] {st.session_state.product_name}", st.session_state.p_code, st.session_state.main_url, final], st.session_state.worker_name)
                 st.success("✅ 최종 결과물이 정리되었으며, 구글 시트에도 안전하게 추가 적재되었습니다!")
             
@@ -571,4 +570,4 @@ if check_password():
             if sel_ws:
                 st.dataframe(ss.worksheet(sel_ws).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>Internal Marketing Tool V14.9 (Side-by-Side Compare)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>Internal Marketing Tool V15.0 (Critical Bug Fixed)</center>", unsafe_allow_html=True)
