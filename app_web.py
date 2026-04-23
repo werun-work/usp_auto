@@ -1,4 +1,4 @@
-# [버전 정보: V16.5 / 업데이트 일자: 2024-04-24]
+# [버전 정보: V16.4 / 업데이트 일자: 2024-04-24]
 import streamlit as st
 import time
 import requests
@@ -28,7 +28,7 @@ import pandas as pd
 # ==========================================
 # [1. 초기 세팅 및 세션 관리]
 # ==========================================
-st.set_page_config(page_title="마케팅 USP & 카피 자동 추출 솔루션", page_icon=":dart:", layout="wide")
+st.set_page_config(page_title="AI USP 추출 솔루션", page_icon=":dart:", layout="wide")
 
 st.markdown("""
     <style>
@@ -358,13 +358,13 @@ def generate_compare_copy(base_report, cmp_style):
     return "🚨 추출 실패"
 
 # ==========================================
-# [5. 이미지 합성 (순수 업로드 지원)] 
+# [5. 이미지 합성 (업로드 파일 전용, 필터 제거, 자동 폰트, CTA 추가)] 
 # ==========================================
 def create_ad_image(img_file, main_copy, sub_copy, cta_copy):
-    if img_file is None: return None
+    if not img_file: return None
     try:
-        # 안전한 파일 열기 방식으로 에러 원천 차단
-        img = Image.open(img_file).convert("RGBA")
+        img_bytes = img_file.getvalue()
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
         
         base_w = 1080
         h_size = int((float(img.size[1]) * (base_w / float(img.size[0]))))
@@ -478,7 +478,7 @@ def create_wordcloud_summary(text):
 # [6. 메인 UI 렌더링]
 # ==========================================
 if check_password():
-    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V16.5 Finale)")
+    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V16.4 Finale)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리"])
@@ -491,17 +491,18 @@ if check_password():
             content_type_input = st.selectbox("🎬 기획안 타겟", ["이미지+영상", "이미지", "영상", "USP만 추출"], index=3)
             copy_style_input = st.selectbox("✍️ 카피 스타일", ["명사/동사 임팩트형", "자연스러운 서술형", "USP + 세일즈 후킹형"], index=1)
             
+            # 🔥 1. 캠페인 레퍼런스 안내 문구 Placeholder로 이동 및 외부 설명 삭제 완벽 반영
             st.markdown("<p style='font-size:14px; font-weight:600; margin-bottom:0px;'>📝 캠페인 레퍼런스</p>", unsafe_allow_html=True)
-            st.markdown("<p style='font-size:12px; color:gray; margin-top:0px; margin-bottom:5px;'>(선택 사항) 성과 좋았던 카피나 경쟁사 카피 레퍼런스를 넣어주면 반영한 카피가 추출됩니다.<br>미기재해도 추출에 문제 없습니다.</p>", unsafe_allow_html=True)
-            user_ref_input = st.text_area("캠페인 레퍼런스", label_visibility="collapsed")
+            user_ref_input = st.text_area("캠페인 레퍼런스", placeholder="(선택 사항) 성과 좋았던 카피나 경쟁사 카피 레퍼런스를 넣어주면 반영한 카피가 추출됩니다.\n미기재해도 추출에 문제 없습니다.", label_visibility="collapsed")
             
             st.markdown("---")
             st.markdown("<p style='font-size:14px; font-weight:600; margin-bottom:0px;'>🔗 상품 URL</p>", unsafe_allow_html=True)
             st.markdown("<p style='font-size:12px; color:gray; margin-top:0px; margin-bottom:5px;'>URL 입력 시 제품 코드 부분까지만 기입해 주세요<br>예: https://www.xexymix.com/shop/shopdetail.html?branduid=2077700</p>", unsafe_allow_html=True)
             main_url_input = st.text_input("상품 URL", label_visibility="collapsed")
             
+            # 🔥 2. 리뷰 수집 범위 안내 문구 추가 텍스트 반영
             st.markdown("<br><p style='font-size:14px; font-weight:600; margin-bottom:0px;'>📜 리뷰 수집 범위(페이지)</p>", unsafe_allow_html=True)
-            st.markdown("<p style='font-size:12px; color:gray; margin-top:0px; margin-bottom:5px;'>1페이지당 5개의 리뷰를 분석합니다 (10페이지=50개 리뷰 분석)</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size:12px; color:gray; margin-top:0px; margin-bottom:5px;'>1페이지당 5개의 리뷰를 분석합니다 (10페이지=50개 리뷰 분석) *보다 좋은 USP 추출을 위해 가급적 5~20 범위 설정을 권장드립니다</p>", unsafe_allow_html=True)
             max_pages_input = st.slider("리뷰 수집 범위", 1, 50, 1, label_visibility="collapsed")
         
         status_container = st.container()
@@ -636,6 +637,7 @@ if check_password():
                 with col_ad1:
                     def_m, def_s, def_cta = "메인 카피 입력", "서브 카피 입력", "구매하기 >"
                     
+                    # 🔥 추출된 기획안에서 메인, 서브, CTA를 가져와 디폴트 세팅
                     if st.session_state.ad_plan_df is not None:
                         copy_row = st.session_state.ad_plan_df[st.session_state.ad_plan_df["구분"].str.contains("카피", na=False)]
                         if not copy_row.empty:
@@ -714,4 +716,4 @@ if check_password():
             if sel_ws:
                 st.dataframe(ss.worksheet(sel_ws).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>Internal Marketing Tool V16.5</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>Internal Marketing Tool V16.4 (Perfectly Restored & Upgraded)</center>", unsafe_allow_html=True)
