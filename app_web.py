@@ -53,11 +53,11 @@ session_keys = [
     'analyzed', 'main_report_text', 'ad_plan_df', 'wc_img', 'ad_img', 
     'filename_base', 'main_url', 'worker_name', 'content_type', 'copy_style', 
     'user_ref_copy', 'extracted_img_url', 'extra_copies', 'final_compiled_text',
-    'used_model_version', 'potential_imgs', 'product_name', 'p_code', 'compare_copy_list'
+    'used_model_version', 'product_name', 'p_code', 'compare_copy_list'
 ]
 for key in session_keys:
     if key not in st.session_state:
-        if key in ['extra_copies', 'potential_imgs', 'compare_copy_list']: st.session_state[key] = []
+        if key in ['extra_copies', 'compare_copy_list']: st.session_state[key] = []
         elif key == 'ad_plan_df': st.session_state[key] = None
         elif 'img' in key: st.session_state[key] = None
         else: st.session_state[key] = ""
@@ -139,10 +139,10 @@ def save_to_google_sheet(data_list, worker_name):
         except: pass
 
 # ==========================================
-# [3. 데이터 수집 엔진 (Selenium)]
+# [3. 데이터 수집 엔진] 🔥 ValueError(언패킹 오류) 완벽 수정
 # ==========================================
-def get_data_bulldozer(target_url, max_pages=10):
-    brand_text, review_list, pot_imgs, p_name = "", [], [], "상품명 수집 불가"
+def get_data_bulldozer(target_url, max_pages=1):
+    brand_text, review_list, p_name = "", [], "상품명 수집 불가"
     options = Options()
     options.binary_location = "/usr/bin/chromium" 
     options.add_argument('--headless') 
@@ -157,8 +157,6 @@ def get_data_bulldozer(target_url, max_pages=10):
             res = requests.get(target_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
             soup = BeautifulSoup(res.text, 'html.parser')
             p_name = soup.find('meta', property='og:title')['content'].strip() if soup.find('meta', property='og:title') else soup.title.text.strip()
-            og_img = soup.find('meta', property='og:image')
-            if og_img: pot_imgs.append(og_img['content'])
         except: pass
 
         service = Service("/usr/bin/chromedriver") 
@@ -187,14 +185,16 @@ def get_data_bulldozer(target_url, max_pages=10):
     finally:
         try: driver.quit()
         except: pass
-    return brand_text, "\n".join(review_list)[:30000], pot_imgs, p_name 
+    
+    # 🔥 정확히 3개의 변수만 리턴하여 언패킹 충돌(ValueError) 방지
+    return brand_text, "\n".join(review_list)[:30000], p_name 
 
 # ==========================================
 # [4. AI 분석 엔진] 🔥 모호한 카피 금지 및 / 기호 반영
 # ==========================================
-def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type, copy_style, product_url, product_name, user_ref_copy):
+def analyze_deep_usp_summarized(brand_text, review_text, content_type, copy_style, product_url, product_name, user_ref_copy):
     
-    # 공통 지시사항: 모호한 표현 금지 및 구체적 정보 포함
+    # 🔥 공통 지시사항: 모호한 표현 금지 및 구체적 정보 포함
     copy_quality_rule = """
     [카피 작성 절대 규칙]
     - '이 가격?', '세트 가격', '득템', '역대급' 등 추상적이고 모호한 표현은 절대 사용하지 마세요.
@@ -338,7 +338,7 @@ def create_ad_image(img_file, main_copy, sub_copy):
 # [6. 메인 화면 렌더링]
 # ==========================================
 if check_password():
-    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V15.7 Master)")
+    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V15.8 Master)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리"])
@@ -362,7 +362,8 @@ if check_password():
             
             st.markdown("<br><p style='font-size:14px; font-weight:600; margin-bottom:0px;'>📜 리뷰 수집 범위(페이지)</p>", unsafe_allow_html=True)
             st.markdown("<p style='font-size:12px; color:gray; margin-top:0px; margin-bottom:5px;'>1페이지당 5개의 리뷰를 분석합니다 (10페이지=50개 리뷰 분석)</p>", unsafe_allow_html=True)
-            # 🔥 최소 단위 1, 기본값 1로 수정 완료
+            
+            # 🔥 최소 범위 1로 설정 완벽 반영
             max_pages_input = st.slider("리뷰 수집 범위", 1, 50, 1, label_visibility="collapsed")
         
         if st.button("▶ 분석 시작", type="primary", use_container_width=True):
@@ -378,10 +379,11 @@ if check_password():
                     qs = parse_qs(parsed.query)
                     st.session_state.p_code = qs.get('branduid', qs.get('product_no', ['UNKNOWN']))[0]
                     
+                    # 🔥 언패킹 ValueError 방지용 3개 변수 완벽 매칭
                     brand_txt, review_txt, p_name = get_data_bulldozer(main_url_input, max_pages_input)
                     st.session_state.product_name = p_name
                     
-                    res_raw, model_used = analyze_deep_usp_summarized(brand_txt, review_txt, [], content_type_input, copy_style_input, main_url_input, p_name, user_ref_input)
+                    res_raw, model_used = analyze_deep_usp_summarized(brand_txt, review_txt, content_type_input, copy_style_input, main_url_input, p_name, user_ref_input)
                     
                     if "🚨" not in res_raw:
                         st.session_state.used_model_version = model_used
@@ -447,7 +449,7 @@ if check_password():
                 st.markdown("<br>### 🖼️ 2. 광고 시안 제작 (선택)", unsafe_allow_html=True)
                 col_ad1, col_ad2 = st.columns(2)
                 with col_ad1:
-                    # 🔥 기획안 표에서 광고 카피 로우를 찾아 디폴트로 넣어주는 로직
+                    # 🔥 기획안 표에서 메인/서브 카피 가져와서 자동 세팅
                     def_m, def_s = "메인 카피 입력", "서브 카피 입력"
                     if st.session_state.ad_plan_df is not None:
                         copy_row = st.session_state.ad_plan_df[st.session_state.ad_plan_df["구분"].str.contains("카피", na=False)]
@@ -460,13 +462,16 @@ if check_password():
 
                     m_c = st.text_input("합성할 메인 카피", value=def_m)
                     s_c = st.text_input("합성할 서브 카피", value=def_s)
-                    st.info("💡 팁: 회색 박스 클릭 후 창 뜨면 취소 누르고 Ctrl+V 하면 이미지가 들어갑니다.")
+                    
+                    # 🔥 가장 확실한 Ctrl+V 붙여넣기 팁 안내
+                    st.info("💡 **[Ctrl+V 붙여넣기 확실한 방법]**\n1. 이미지를 캡처(Ctrl+C)합니다.\n2. 회색 박스가 아닌, **화면의 빈 하얀색 바탕 아무 곳이나 마우스로 한 번 클릭**합니다.\n3. 그 상태에서 `Ctrl+V`를 누르면 이미지가 쏙 들어갑니다! (안 되면 아래 Upload 버튼 이용)")
+                    
                     u_f = st.file_uploader("이미지 업로드 영역", label_visibility="collapsed", type=["jpg", "jpeg", "png"])
                     if st.button("🖼️ 이미지 시안 생성"):
                         with st.spinner("⏳ 합성 중..."):
                             res = create_ad_image(u_f, m_c, s_c)
                             if res: st.session_state.ad_img = res; st.success("생성 완료!")
-                            else: st.error("이미지를 업로드해주세요.")
+                            else: st.error("이미지를 업로드하거나 붙여넣기 해주세요.")
                 with col_ad2:
                     if st.session_state.ad_img:
                         st.image(st.session_state.ad_img, width=300)
@@ -489,4 +494,4 @@ if check_password():
             if st.session_state.final_compiled_text:
                 st.text_area("📋 전체 복사 (Ctrl+A -> Ctrl+C)", st.session_state.final_compiled_text, height=350)
 
-    st.markdown("<br><center>Internal Marketing Tool V15.7 (Final Revision)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>Internal Marketing Tool V15.8 (Fatal Error Fixed)</center>", unsafe_allow_html=True)
