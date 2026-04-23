@@ -53,11 +53,11 @@ session_keys = [
     'analyzed', 'main_report_text', 'ad_plan_df', 'wc_img', 'ad_img', 
     'filename_base', 'main_url', 'worker_name', 'content_type', 'copy_style', 
     'user_ref_copy', 'extracted_img_url', 'extra_copies', 'final_compiled_text',
-    'used_model_version', 'potential_imgs', 'product_name', 'p_code', 'compare_copy_res'
+    'used_model_version', 'potential_imgs', 'product_name', 'p_code', 'compare_copy_list'
 ]
 for key in session_keys:
     if key not in st.session_state:
-        if key == 'extra_copies' or key == 'potential_imgs': st.session_state[key] = []
+        if key in ['extra_copies', 'potential_imgs', 'compare_copy_list']: st.session_state[key] = []
         elif key == 'ad_plan_df': st.session_state[key] = None
         elif 'img' in key: st.session_state[key] = None
         else: st.session_state[key] = ""
@@ -157,6 +157,14 @@ def get_data_bulldozer(target_url, max_pages=10):
             res = requests.get(target_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
             soup = BeautifulSoup(res.text, 'html.parser')
             p_name = soup.find('meta', property='og:title')['content'].strip() if soup.find('meta', property='og:title') else soup.title.text.strip()
+            og_img = soup.find('meta', property='og:image')
+            if og_img: pot_imgs.append(og_img['content'])
+            for img in soup.find_all('img'):
+                src = img.get('src', '') or img.get('data-src', '')
+                if not src or any(x in src.lower() for x in ['logo', 'icon', 'btn', 'gif']): continue
+                if src.startswith('//'): src = 'https:' + src
+                elif src.startswith('/'): src = f"https://{urlparse(target_url).netloc}{src}"
+                if src not in pot_imgs: pot_imgs.append(src)
         except: pass
 
         service = Service("/usr/bin/chromedriver") 
@@ -188,16 +196,9 @@ def get_data_bulldozer(target_url, max_pages=10):
     return brand_text, "\n".join(review_list)[:30000], pot_imgs, p_name 
 
 # ==========================================
-# [4. AI 분석 엔진] 🔥 누락되었던 pot_imgs 인수 추가 복구 완료
+# [4. AI 분석 엔진]
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type, copy_style, product_url, product_name, user_ref_copy):
-    if "명사/동사" in copy_style:
-        style_guide = "20자 이내, 명사/동사 종결"
-    elif "세일즈" in copy_style:
-        style_guide = "20자 이내, 제품의 핵심 USP와 할인/혜택 등을 강조하여 당장 구매하고 싶게 만드는 세일즈 후킹형"
-    else:
-        style_guide = "20자 이내, 자연스러운 서술형"
-    
     ref_section = """
     [자사 베스트 카피 레퍼런스]
     - 입는 순간 -5kg, 마법의 슬림핏
@@ -239,8 +240,15 @@ def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type,
     * **[불편 해결]**: (이 제품을 통해 해결된 기존의 불편함)
     * **[대표 리뷰]**: (고객의 생생한 반응을 담은 한 마디)
 
-    ### 🎯 3. 초압축 다각도 후킹 카피 ({copy_style})
-    1. [추천/만족형] 2. [시간 단축형] 3. [시각 보정형] 4. [피부/소재 공감형] 5. [가성비 증명형] 6. [상황 저격형] 7. [사회적 증거형] 8. [불만 해결형]
+    ### 🎯 3. 카피라이팅 추출 ({copy_style})
+    1. [추천/만족형] (카피내용 작성)
+    2. [시간 단축형] (카피내용 작성)
+    3. [시각 보정형] (카피내용 작성)
+    4. [피부/소재 공감형] (카피내용 작성)
+    5. [가성비 증명형] (카피내용 작성)
+    6. [상황 저격형] (카피내용 작성)
+    7. [사회적 증거형] (카피내용 작성)
+    8. [불만 해결형] (카피내용 작성)
 
     [SELECTED_IMAGE_URL]{pot_imgs[0] if pot_imgs else "None"}[/SELECTED_IMAGE_URL]
     [AD_PLAN_START]
@@ -274,7 +282,12 @@ def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type,
 # [추가 카피 무한 생성기 (A/B 테스트용 분리)]
 # ==========================================
 def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
-    style = "각 20자 이내, 임팩트형(명사/동사 종결)" if "명사/동사" in copy_style else "각 20자 이내, 제품 혜택 강조 세일즈형" if "세일즈" in copy_style else "각 20자 이내, 자연스러운 서술형"
+    if "명사/동사" in copy_style:
+        style = "각 20자 이내, 임팩트형(명사/동사 종결)"
+    elif "세일즈" in copy_style:
+        style = "각 20자 이내, 제품의 핵심 USP와 혜택을 강조하는 세일즈 후킹형"
+    else:
+        style = "각 20자 이내, 자연스러운 서술형"
 
     prompt = f"""
     당신은 카피라이터입니다. 절대 서론이나 기존 분석내용을 재출력하지 마세요.
@@ -291,21 +304,24 @@ def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
         except: time.sleep(0.5); continue
     return "🚨 서버 지연. 잠시 후 시도하세요."
 
-# 3번 카피 전용 비교 추출 함수
+# 🔥 3번 카피 전용 비교 추출 함수 (카피 단어 제거 통제 적용)
 def generate_compare_copy(base_report, cmp_style):
     prompt = f"""
     당신은 카피라이터입니다. 절대 서론 없이 리스트만 출력하세요.
     아래 [제품 USP 분석]을 바탕으로, '{cmp_style}' 스타일에 맞춰 가장 매력적인 후킹 카피 8개를 도출하세요.
     
+    [매우 중요한 규칙]
+    대괄호 [ ] 뒤에 "카피"라는 단어를 절대 적지 마세요! (예: 1. [추천/만족형] 시원해서 매일 입어요)
+    
     [형식]
-    1. [추천/만족형] 카피
-    2. [시간 단축형] 카피
-    3. [시각 보정형] 카피
-    4. [피부/소재 공감형] 카피
-    5. [가성비 증명형] 카피
-    6. [상황 저격형] 카피
-    7. [사회적 증거형] 카피
-    8. [불만 해결형] 카피
+    1. [추천/만족형] (내용)
+    2. [시간 단축형] (내용)
+    3. [시각 보정형] (내용)
+    4. [피부/소재 공감형] (내용)
+    5. [가성비 증명형] (내용)
+    6. [상황 저격형] (내용)
+    7. [사회적 증거형] (내용)
+    8. [불만 해결형] (내용)
     
     [제품 USP 분석]: {base_report[:2000]}
     """
@@ -316,7 +332,7 @@ def generate_compare_copy(base_report, cmp_style):
     return "🚨 추출 실패"
 
 # ==========================================
-# [5. 이미지 합성 (클립보드 방식) 및 워드클라우드]
+# [5. 이미지 합성 및 워드클라우드]
 # ==========================================
 def create_ad_image(img_file, main_copy, sub_copy):
     if not img_file: return None
@@ -371,7 +387,7 @@ def create_wordcloud_summary(text):
 # [6. 메인 UI 렌더링]
 # ==========================================
 if check_password():
-    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V15.0 Finale)")
+    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V15.1 Finale)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리"])
@@ -385,8 +401,8 @@ if check_password():
             copy_style_input = st.selectbox("✍️ 카피 스타일", ["명사/동사 임팩트형", "자연스러운 서술형", "USP + 세일즈 후킹형"], index=1)
             
             st.markdown("<p style='font-size:14px; font-weight:600; margin-bottom:0px;'>📝 캠페인 레퍼런스</p>", unsafe_allow_html=True)
-            # 🔥 Placeholder 텍스트 수정 및 힌트 문구 추가 완료
-            user_ref_input = st.text_area("캠페인 레퍼런스", placeholder="성과 좋았던 카피나 경쟁사 카피 레퍼런스를 넣어주면 반영한 카피가 추출됩니다.\n(선택 사항) 미기재해도 추출에 문제 없습니다", label_visibility="collapsed")
+            st.markdown("<p style='font-size:12px; color:gray; margin-top:0px; margin-bottom:5px;'>(선택 사항) 성과 좋았던 카피나 경쟁사 카피 레퍼런스를 넣어주면 반영한 카피가 추출됩니다.<br>미기재해도 추출에 문제 없습니다.</p>", unsafe_allow_html=True)
+            user_ref_input = st.text_area("캠페인 레퍼런스", label_visibility="collapsed")
             
             st.markdown("---")
             st.markdown("<p style='font-size:14px; font-weight:600; margin-bottom:0px;'>🔗 상품 URL</p>", unsafe_allow_html=True)
@@ -407,7 +423,7 @@ if check_password():
                     st.session_state.main_url = main_url_input
                     st.session_state.worker_name = worker_input
                     st.session_state.copy_style = copy_style_input
-                    st.session_state.compare_copy_res = None 
+                    st.session_state.compare_copy_list = [] # 비교 내역 초기화
                     
                     parsed = urlparse(main_url_input)
                     qs = parse_qs(parsed.query)
@@ -416,7 +432,6 @@ if check_password():
                     brand_txt, review_txt, pot_imgs, p_name = get_data_bulldozer(main_url_input, max_pages_input)
                     st.session_state.product_name = p_name
                     
-                    # 🔥 누락되었던 pot_imgs 인수를 정상적으로 다시 넘겨줍니다!
                     res_raw, model_used = analyze_deep_usp_summarized(brand_txt, review_txt, pot_imgs, content_type_input, copy_style_input, main_url_input, p_name, user_ref_input)
                     
                     if "🚨" not in res_raw:
@@ -429,6 +444,11 @@ if check_password():
                         
                         if "이미지" in content_type_input and st.session_state.ad_plan_df is None:
                             st.session_state.ad_plan_df = create_default_ad_plan(p_name, main_url_input)
+                        
+                        img_m = re.search(r'\[SELECTED_IMAGE_URL\](.*?)\[/SELECTED_IMAGE_URL\]', res_raw, re.DOTALL)
+                        if img_m:
+                            st.session_state.extracted_img_url = img_m.group(1).strip()
+                            res_raw = res_raw.replace(img_m.group(0), "").replace("[SELECTED_IMAGE_URL]", "").replace("[/SELECTED_IMAGE_URL]", "")
                         
                         st.session_state.main_report_text = res_raw.strip()
                         st.session_state.wc_img = create_wordcloud_summary(review_txt)
@@ -447,7 +467,8 @@ if check_password():
             st.markdown("---")
             st.markdown(f"<span style='font-size:13px; color:gray;'>(ver. {st.session_state.used_model_version})</span>", unsafe_allow_html=True)
             
-            split_keyword = f"### 🎯 3. 초압축 다각도 후킹 카피 ({st.session_state.copy_style})"
+            # 🔥 바뀐 타이틀 명칭에 맞게 분할
+            split_keyword = f"### 🎯 3. 카피라이팅 추출 ({st.session_state.copy_style})"
             
             if split_keyword in st.session_state.main_report_text:
                 part12, part3_raw = st.session_state.main_report_text.split(split_keyword, 1)
@@ -457,7 +478,7 @@ if check_password():
                 col_left, col_line, col_right = st.columns([1, 0.05, 1])
                 
                 with col_left:
-                    st.markdown(f"### 🎯 3. 초압축 다각도 후킹 카피 ({st.session_state.copy_style})")
+                    st.markdown(f"### 🎯 3. 카피라이팅 추출 ({st.session_state.copy_style})")
                     st.markdown(part3_raw)
                     
                     st.markdown("<br>### 💡카피라이팅 추가 추출기", unsafe_allow_html=True)
@@ -477,17 +498,20 @@ if check_password():
                     
                 with col_right:
                     st.markdown("### 🔄 카피 스타일 비교 추출")
-                    st.caption("기존 분석을 유지한 채 다른 스타일의 카피를 나란히 비교해보세요.")
+                    st.caption("기존 분석을 유지한 채 다른 스타일의 카피를 계속 누적하여 비교할 수 있습니다.")
                     cmp_style = st.selectbox("비교할 스타일 선택", ["USP + 세일즈 후킹형", "명사/동사 임팩트형", "자연스러운 서술형"], index=0)
                     if st.button("✨ 비교 추출하기", use_container_width=True):
                         with st.spinner("⏳ 비교용 카피를 추출하는 중입니다..."):
                             cmp_res = generate_compare_copy(st.session_state.main_report_text, cmp_style)
-                            st.session_state.compare_copy_res = cmp_res
+                            # 🔥 기존 내역을 덮어씌우지 않고 리스트에 계속 추가(누적)
+                            st.session_state.compare_copy_list.append({"style": cmp_style, "res": cmp_res})
                             
-                    if st.session_state.compare_copy_res:
+                    if st.session_state.compare_copy_list:
                         st.success("추출 완료!")
-                        st.markdown(f"### 🎯 3. 초압축 다각도 후킹 카피 ({cmp_style})")
-                        st.markdown(st.session_state.compare_copy_res)
+                        # 🔥 누적된 비교본을 접을 수 있는 형태(Expander)로 모두 보여줌
+                        for idx, cmp in enumerate(reversed(st.session_state.compare_copy_list)):
+                            with st.expander(f"🎯 3. 카피라이팅 추출 ({cmp['style']}) - #{len(st.session_state.compare_copy_list)-idx}", expanded=(idx==0)):
+                                st.markdown(cmp['res'])
             else:
                 st.markdown(st.session_state.main_report_text)
                 st.markdown("<br>### 💡카피라이팅 추가 추출기", unsafe_allow_html=True)
@@ -521,7 +545,11 @@ if check_password():
                 with col_ad1:
                     m_c = st.text_input("합성할 메인 카피")
                     s_c = st.text_input("합성할 서브 카피")
-                    u_f = st.file_uploader("🖼️ 상품 이미지 (클릭 후 Ctrl+V로 복사한 이미지 붙여넣기 가능)", type=["jpg", "jpeg", "png"])
+                    
+                    # 🔥 Ctrl+V 입력 영역 명확화 안내
+                    st.markdown("**🖼️ 상품 이미지 업로드 (Ctrl+V 지원)**")
+                    st.caption("👇 **아래의 회색 점선 박스 안을 마우스로 한 번 클릭한 후, `Ctrl + V`**를 누르면 캡처한 이미지가 바로 붙여넣기 됩니다.")
+                    u_f = st.file_uploader("이미지 업로드 영역", label_visibility="collapsed", type=["jpg", "jpeg", "png"])
                     
                     if st.button("🖼️ 이미지 시안 생성"):
                         with st.spinner("⏳ 이미지 시안을 합성하는 중입니다... 잠시만 기다려주세요."):
@@ -544,9 +572,12 @@ if check_password():
             if st.button("🚀 모든 내용 하나로 합치기", use_container_width=True):
                 final = f"{st.session_state.main_report_text}\n\n"
                 
-                if st.session_state.compare_copy_res:
-                    final += f"\n[비교 추출된 카피]\n{st.session_state.compare_copy_res}\n\n"
-                    
+                # 🔥 비교 카피가 있다면 취합본에도 반영
+                if st.session_state.compare_copy_list:
+                    final += "[비교 추출된 카피 내역]\n"
+                    for cmp in reversed(st.session_state.compare_copy_list):
+                        final += f"▶ 스타일: {cmp['style']}\n{cmp['res']}\n\n"
+                        
                 if st.session_state.extra_copies:
                     final += "[추가 카피 적재 내역]\n"
                     for idx, ex in enumerate(st.session_state.extra_copies): final += f"▶ 요청: {ex['req']}\n{ex['res']}\n\n"
@@ -570,4 +601,4 @@ if check_password():
             if sel_ws:
                 st.dataframe(ss.worksheet(sel_ws).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>Internal Marketing Tool V15.0 (Critical Bug Fixed)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>Internal Marketing Tool V15.1 (UI Detail Optimized)</center>", unsafe_allow_html=True)
