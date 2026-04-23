@@ -190,15 +190,17 @@ def get_data_bulldozer(target_url, max_pages=10):
     return brand_text, "\n".join(review_list)[:30000], p_name 
 
 # ==========================================
-# [4. AI 분석 엔진] 🔥 20자 이내 규칙 및 서론 제거 강화
+# [4. AI 분석 엔진] 🔥 글자수(25자) 제한 및 세일즈 후킹 로직 보완
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, content_type, copy_style, product_url, product_name, user_ref_copy):
+    
+    # 🔥 대괄호 제외 25자 강제 및 [가격 소구형] 필수 추가
     if "명사/동사" in copy_style:
-        style_guide = "반드시 공백 포함 20자 이내, 명사/동사 종결"
+        style_guide = "대괄호 [유형] 부분을 제외한 순수 카피 텍스트 기준 '공백 포함 20자 이내', 명사/동사 종결"
     elif "세일즈" in copy_style:
-        style_guide = "반드시 공백 포함 20자 이내, 제품의 핵심 USP와 할인/혜택 등을 강조하는 세일즈 후킹형"
+        style_guide = "대괄호 [유형] 부분을 제외한 순수 카피 텍스트 기준 '공백 포함 25자 이내', 혜택 강조 세일즈형. (⚠️ 8개 중 최소 1개는 반드시 [가격 소구형] 유형을 사용할 것)"
     else:
-        style_guide = "반드시 공백 포함 20자 이내, 자연스러운 서술형"
+        style_guide = "대괄호 [유형] 부분을 제외한 순수 카피 텍스트 기준 '공백 포함 25자 이내 추출', 자연스러운 서술형"
     
     ref_section = """
     [자사 베스트 카피 레퍼런스]
@@ -242,7 +244,7 @@ def analyze_deep_usp_summarized(brand_text, review_text, content_type, copy_styl
     * **[대표 리뷰]**: (고객의 생생한 반응을 담은 한 마디)
 
     ### 🎯 3. 카피라이팅 추출 ({copy_style})
-    *모든 카피는 반드시 공백을 포함하여 20자를 절대 넘지 않도록 강력히 압축하세요.*
+    *모든 카피는 {style_guide} 규칙을 엄격하게 지키세요.*
     1. [추천/만족형] (카피내용 작성)
     2. [시간 단축형] (카피내용 작성)
     3. [시각 보정형] (카피내용 작성)
@@ -280,15 +282,15 @@ def analyze_deep_usp_summarized(brand_text, review_text, content_type, copy_styl
     return f"🚨 [전체 서버 폭주] 10~20초 뒤 다시 시도해 주세요.\n상세 에러: {last_error}", None
 
 # ==========================================
-# [추가 카피 무한 생성기] 🔥 5회 재시도 & 20자 규약 강제
+# [추가 카피 무한 생성기] 🔥 글자수 25자 강제
 # ==========================================
 def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     if "명사/동사" in copy_style:
-        style = "반드시 공백 포함 20자 이내, 임팩트형(명사/동사 종결)"
+        style = "대괄호 [유형] 제외 순수 카피 기준 '공백 포함 20자 이내', 임팩트형(명사/동사 종결)"
     elif "세일즈" in copy_style:
-        style = "반드시 공백 포함 20자 이내, 제품의 핵심 USP와 혜택을 강조하는 세일즈 후킹형"
+        style = "대괄호 [유형] 제외 순수 카피 기준 '공백 포함 25자 이내', 혜택 강조 세일즈형 (⚠️ 최소 1개는 반드시 [가격 소구형] 포함)"
     else:
-        style = "반드시 공백 포함 20자 이내, 자연스러운 서술형"
+        style = "대괄호 [유형] 제외 순수 카피 기준 '공백 포함 25자 이내 추출', 자연스러운 서술형"
 
     prompt = f"""
     당신은 카피라이터입니다. 절대 서론이나 기존 분석내용을 재출력하지 마세요.
@@ -300,71 +302,49 @@ def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     [스타일 규칙]: {style}
     """
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
-    models = ['gemini-3.1-flash', 'gemini-2.5-flash', 'gemini-1.5-flash-latest']
-    
     for attempt in range(5):
-        for m in models:
-            try: 
-                return client.models.generate_content(model=m, contents=prompt).text
-            except: 
-                time.sleep(1)
-                continue
-    return "🚨 5회 재시도에도 불구하고 서버 폭주로 추출에 실패했습니다. 잠시 후 다시 시도해주세요."
+        for m in ['gemini-3.1-flash', 'gemini-2.5-flash', 'gemini-1.5-flash-latest']:
+            try: return client.models.generate_content(model=m, contents=prompt).text
+            except: time.sleep(1); continue
+    return "🚨 서버 지연. 잠시 후 시도하세요."
 
 # ==========================================
-# [비교 카피 추출기] 🔥 5회 재시도 & 20자 & 카피단어 금지 강제
+# [비교 카피 추출기] 🔥 글자수 25자 강제
 # ==========================================
 def generate_compare_copy(base_report, cmp_style):
     if "명사/동사" in cmp_style:
-        style_detail = "반드시 공백 포함 20자 이내, 명사/동사 종결"
+        style_detail = "대괄호 [유형] 제외 순수 카피 기준 '공백 포함 20자 이내', 명사/동사 종결"
     elif "세일즈" in cmp_style:
-        style_detail = "반드시 공백 포함 20자 이내, 제품의 핵심 USP와 혜택을 강조하는 세일즈 후킹형"
+        style_detail = "대괄호 [유형] 제외 순수 카피 기준 '공백 포함 25자 이내', 혜택 강조 세일즈형 (⚠️ 최소 1개는 반드시 [가격 소구형] 포함)"
     else:
-        style_detail = "반드시 공백 포함 20자 이내, 자연스러운 서술형"
+        style_detail = "대괄호 [유형] 제외 순수 카피 기준 '공백 포함 25자 이내 추출', 자연스러운 서술형"
 
     prompt = f"""
     당신은 카피라이터입니다. 절대 서론 없이 리스트만 출력하세요.
     아래 [제품 USP 분석]을 바탕으로, '{cmp_style}' 스타일에 맞춰 가장 매력적인 후킹 카피 8개를 도출하세요.
     
-    [매우 중요한 2가지 절대 규칙]
-    1. 대괄호 [ ] 뒤에 "카피"라는 단어를 절대 적지 마세요! (예: 1. [추천/만족형] 시원해서 매일 입어요)
-    2. 모든 카피는 반드시 공백을 포함하여 20자를 절대 넘지 않게 작성하세요.
-    
-    [형식]
-    1. [추천/만족형] (내용)
-    2. [시간 단축형] (내용)
-    3. [시각 보정형] (내용)
-    4. [피부/소재 공감형] (내용)
-    5. [가성비 증명형] (내용)
-    6. [상황 저격형] (내용)
-    7. [사회적 증거형] (내용)
-    8. [불만 해결형] (내용)
+    [매우 중요한 규칙]
+    1. 대괄호 [ ] 뒤에 "카피"라는 단어를 절대 적지 마세요!
+    2. 모든 카피는 {style_detail} 규칙을 엄격하게 지켜 작성하세요.
     
     [제품 USP 분석]: {base_report[:2000]}
     """
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
-    models = ['gemini-3.1-flash', 'gemini-2.5-flash']
-    
     for attempt in range(5):
-        for m in models:
-            try: 
-                return client.models.generate_content(model=m, contents=prompt).text
-            except: 
-                time.sleep(1)
-                continue
-    return "🚨 5회 재시도에도 불구하고 서버 폭주로 추출에 실패했습니다. 잠시 후 다시 시도해주세요."
+        for m in ['gemini-3.1-flash', 'gemini-2.5-flash']:
+            try: return client.models.generate_content(model=m, contents=prompt).text
+            except: time.sleep(1); continue
+    return "🚨 추출 실패"
 
 # ==========================================
-# [5. 이미지 합성 (클립보드 전용) 및 워드클라우드] 
+# [5. 이미지 합성 엔진] 🔥 에러 핸들링 및 TypeError 완벽 픽스
 # ==========================================
 def create_ad_image(img_file, main_copy, sub_copy):
-    # 🔥 AI 추천 이미지 삭제로 인하여 무조건 img_file(업로드 파일) 객체만 처리함
     if not img_file: return None
     try:
-        # Streamlit의 UploadedFile 객체를 바이트로 읽어서 Image로 오픈
-        img_bytes = img_file.getvalue()
-        img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
-
+        # 🔥 Streamlit 업로드 객체를 직접 Image.open()에 전달하여 BytesIO 충돌 에러 원천 차단
+        img = Image.open(img_file).convert("RGBA")
+        
         base_w = 1080
         h_size = int((float(img.size[1]) * (base_w / float(img.size[0]))))
         img = img.resize((base_w, h_size), Image.Resampling.LANCZOS)
@@ -398,7 +378,8 @@ def create_ad_image(img_file, main_copy, sub_copy):
         img.convert("RGB").save(buf, format="PNG")
         return buf.getvalue()
     except Exception as e: 
-        return None
+        # 실패 시 에러 내용을 리턴하여 화면에 띄움
+        return f"ERROR:{str(e)}"
 
 def create_wordcloud_summary(text):
     try:
@@ -415,7 +396,7 @@ def create_wordcloud_summary(text):
 # [6. 메인 UI 렌더링]
 # ==========================================
 if check_password():
-    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V15.3 Finale)")
+    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V15.4 Finale)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리"])
@@ -565,21 +546,25 @@ if check_password():
                     m_c = st.text_input("합성할 메인 카피")
                     s_c = st.text_input("합성할 서브 카피")
                     
-                    # 🔥 이제 파일 업로드(Ctrl+V) 방식만 고정 노출합니다.
+                    # 🔥 Ctrl+V 입력 기능 완벽 지원 안내 (팝업창 취소 팁 포함)
                     st.markdown("**🖼️ 상품 이미지 업로드 (Ctrl+V 지원)**")
-                    st.caption("👇 **아래의 회색 점선 박스 안을 마우스로 한 번 클릭한 후, `Ctrl + V`**를 누르면 복사한 이미지가 바로 붙여넣기 됩니다.")
+                    st.info("💡 **팁:** 웹페이지 빈 바탕화면 아무 곳이나 마우스로 한 번 클릭한 후, `Ctrl + V`를 누르시면 캡처한 이미지가 바로 업로드됩니다! (만약 박스를 클릭해 파일 탐색기 팝업이 떴다면 '취소'를 누르세요)")
                     u_f = st.file_uploader("이미지 업로드 영역", label_visibility="collapsed", type=["jpg", "jpeg", "png"])
                     
                     if st.button("🖼️ 이미지 시안 생성"):
                         with st.spinner("⏳ 이미지 시안을 합성하는 중입니다... 잠시만 기다려주세요."):
                             if not u_f: 
-                                st.warning("이미지를 업로드하거나 캡처 이미지를 붙여넣기(Ctrl+V) 해주세요.")
+                                st.warning("이미지를 업로드하거나 붙여넣기(Ctrl+V) 해주세요.")
                             else: 
-                                st.session_state.ad_img = create_ad_image(u_f, m_c, s_c)
-                                if st.session_state.ad_img is None:
-                                    st.error("이미지 원본 처리 중 오류가 발생했습니다. 다른 캡처본을 사용해보세요.")
-                                else:
+                                img_res = create_ad_image(u_f, m_c, s_c)
+                                # 에러 반환 시
+                                if isinstance(img_res, str) and img_res.startswith("ERROR:"):
+                                    st.error(f"이미지 처리 중 오류가 발생했습니다: {img_res}")
+                                elif img_res: 
+                                    st.session_state.ad_img = img_res
                                     st.success("이미지 시안 생성 완료!")
+                                else:
+                                    st.error("알 수 없는 오류로 이미지를 생성하지 못했습니다.")
                                     
                 with col_ad2:
                     if st.session_state.ad_img:
@@ -621,4 +606,4 @@ if check_password():
             if sel_ws:
                 st.dataframe(ss.worksheet(sel_ws).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>Internal Marketing Tool V15.3 (Image Fix & Logic Hardened)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>Internal Marketing Tool V15.4 (Perfect Finale)</center>", unsafe_allow_html=True)
