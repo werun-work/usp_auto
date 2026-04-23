@@ -22,6 +22,7 @@ import urllib.request
 import json
 import re
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
+import pandas as pd
 
 # ==========================================
 # [1. 초기 세팅 및 세션 관리]
@@ -37,18 +38,18 @@ except:
 
 GOOGLE_SHEET_NAME = "USP_추출기" 
 
-# 세션 상태 초기화 (기존 작업 내역 유지 및 편집을 위함)
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
 session_keys = [
-    'analyzed', 'main_report_text', 'ad_plan_text', 'wc_img', 'ad_img', 
+    'analyzed', 'main_report_text', 'ad_plan_df', 'wc_img', 'ad_img', 
     'filename_base', 'main_url', 'worker_name', 'content_type', 'copy_style', 
     'user_ref_copy', 'extracted_img_url', 'extra_copies', 'final_compiled_text'
 ]
 for key in session_keys:
     if key not in st.session_state:
         if key == 'extra_copies': st.session_state[key] = []
+        elif key == 'ad_plan_df': st.session_state[key] = None
         elif 'img' in key: st.session_state[key] = None
         else: st.session_state[key] = ""
 
@@ -63,9 +64,36 @@ def check_password():
             if password_input == APP_PASSWORD:
                 st.session_state.authenticated = True
                 st.rerun()
-            else:
-                st.error("🚨 비밀번호가 틀렸습니다.")
+            else: st.error("🚨 비밀번호가 틀렸습니다.")
     return False
+
+# ==========================================
+# [표 변환 유틸리티 함수] 🔥 기획안 표 편집을 위한 기능
+# ==========================================
+def parse_md_table(md_text):
+    lines = md_text.strip().split('\n')
+    data = []
+    headers = []
+    for line in lines:
+        line = line.strip()
+        if not line or '---' in line: continue
+        if line.startswith('|') and line.endswith('|'):
+            cols = [c.strip() for c in line.split('|')[1:-1]]
+            if not headers: headers = cols
+            else: data.append(cols)
+    if headers and data:
+        for i in range(len(data)):
+            if len(data[i]) < len(headers): data[i].extend([''] * (len(headers) - len(data[i])))
+            elif len(data[i]) > len(headers): data[i] = data[i][:len(headers)]
+        return pd.DataFrame(data, columns=headers)
+    return pd.DataFrame([["광고 지면", "GFA 피드, 카카오 모먼트 등"], ["버튼(CTA)", "구매하기 >"]], columns=["구분", "내용"])
+
+def df_to_md_table(df):
+    md = f"| {' | '.join(df.columns)} |\n"
+    md += f"|{'|'.join(['---'] * len(df.columns))}|\n"
+    for _, row in df.iterrows():
+        md += f"| {' | '.join([str(x) for x in row.values])} |\n"
+    return md
 
 # ==========================================
 # [2. 구글 시트 연동 엔진]
@@ -108,7 +136,6 @@ def get_data_bulldozer(target_url, max_pages=10):
     options.page_load_strategy = 'eager' 
 
     try:
-        # OG 및 기본 메타데이터 수집
         try:
             res = requests.get(target_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
             soup = BeautifulSoup(res.text, 'html.parser')
@@ -123,7 +150,6 @@ def get_data_bulldozer(target_url, max_pages=10):
                 if src not in pot_imgs: pot_imgs.append(src)
         except: pass
 
-        # Selenium을 이용한 동적 텍스트 수집
         service = Service("/usr/bin/chromedriver") 
         driver = webdriver.Chrome(service=service, options=options)
         driver.set_page_load_timeout(15)
@@ -134,7 +160,6 @@ def get_data_bulldozer(target_url, max_pages=10):
             brand_text = driver.find_element(By.TAG_NAME, 'body').text.strip()[:5000]
         except: pass
 
-        # 젝시믹스 전용 크리마 리뷰 수집
         status_container.info(f"🤖 (2/3) 고객 리뷰 분석 및 수집 중 (최대 {max_pages}P)...")
         if "xexymix.com" in target_url:
             p_code = parse_qs(urlparse(target_url).query).get('branduid', [''])[0]
@@ -148,11 +173,9 @@ def get_data_bulldozer(target_url, max_pages=10):
                         if len(content) < 50: break
                         review_list.append(content)
                     except: break
-        else:
-            review_list.append(brand_text[1000:4000])
+        else: review_list.append(brand_text[1000:4000])
             
-    except Exception as e:
-        status_container.error(f"⚠️ 시스템 오류: {e}")
+    except Exception as e: status_container.error(f"⚠️ 시스템 오류: {e}")
     finally:
         try: driver.quit()
         except: pass
@@ -228,7 +251,7 @@ def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type,
 
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
     
-    # 🔥 Waterfall Sequential Engine (6중 방어막)
+    # 🔥 Waterfall Sequential Engine: 순차적 접근
     fallback_models = [
         'gemini-3.1-pro', 'gemini-3.1-flash', 'gemini-3.1-flash-lite', 
         'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'
@@ -237,8 +260,7 @@ def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type,
     last_error = ""
     for i, model_name in enumerate(fallback_models):
         try:
-            if i > 0:
-                status_container.warning(f"⚠️ 이전 서버 혼잡으로 {model_name} 엔진으로 우회 접속을 시도합니다...")
+            if i > 0: status_container.warning(f"⚠️ 이전 서버 혼잡으로 {model_name} 엔진으로 우회 접속을 시도합니다...")
             response = client.models.generate_content(model=model_name, contents=final_prompt)
             status_container.success(f"✅ {model_name} 엔진을 통해 분석에 성공했습니다!")
             return response.text
@@ -249,27 +271,46 @@ def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type,
             
     return f"🚨 [전체 서버 폭주] 6개의 모든 AI 엔진이 현재 응답할 수 없습니다. 10~20초 뒤 다시 시도해 주세요.\n상세 에러: {last_error}"
 
-# 추가 카피 무한 적재 엔진 (워터폴 적용)
+# ==========================================
+# [추가 카피 생성기 (강력 통제 프롬프트)]
+# ==========================================
 def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     style = "20자 이내 임팩트형" if "명사/동사" in copy_style else "20자 이내 서술형"
-    prompt = f"다음 USP 분석을 기반으로 마케터의 추가 요청사항을 반영하여 카피 8개를 더 작성하라.\n분석내용: {base_report[:2000]}\n요청: {user_req}\n스타일: {style}\n레퍼런스: {user_ref_copy if user_ref_copy else '기본 브랜드 톤'}"
+    # 🔥 분석 내용 재출력을 강력하게 막고 카피만 뱉게 하는 프롬프트
+    prompt = f"""
+    당신은 카피라이터입니다. 아래 [기존 분석]은 참고만 하고 절대 다시 출력하지 마세요.
+    오직 마케터의 [추가 요청사항]을 반영한 **새로운 카피 8줄**만 결과로 출력하세요. (서론, 결론, 부연설명 일체 금지)
+    
+    [기존 분석 (참고용)]: {base_report[:2000]}
+    [추가 요청사항]: {user_req}
+    [스타일 제약]: {style}
+    [톤앤매너 레퍼런스]: {user_ref_copy if user_ref_copy else '기본 브랜드 톤'}
+    """
     
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
-    for model_name in ['gemini-3.1-flash', 'gemini-2.5-flash', 'gemini-1.5-flash-latest']:
+    fallback_models = ['gemini-3.1-flash', 'gemini-2.5-flash', 'gemini-3.1-flash-lite']
+    
+    for model_name in fallback_models:
         try:
             res = client.models.generate_content(model=model_name, contents=prompt)
             return res.text
-        except: continue
+        except: 
+            time.sleep(1)
+            continue
     return "🚨 추가 추출 실패 (서버 혼잡)"
 
 # ==========================================
 # [5. 이미지 합성 및 워드클라우드 로직]
 # ==========================================
 def create_ad_image(img_source, main_copy, sub_copy, is_file=False):
+    # 🔥 URL 오류 및 보안 차단 방지 로직 강화
+    if not img_source or img_source == "None" or img_source.strip() == "": return None
+    
     try:
         if is_file: img = Image.open(img_source).convert("RGBA")
         else:
-            req = urllib.request.Request(img_source, headers={'User-Agent': 'Mozilla/5.0'})
+            clean_url = img_source.strip(' \n"\'[]')
+            req = urllib.request.Request(clean_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
             img = Image.open(io.BytesIO(urllib.request.urlopen(req).read())).convert("RGBA")
 
         base_w = 1080
@@ -308,7 +349,7 @@ def create_ad_image(img_source, main_copy, sub_copy, is_file=False):
         buf = io.BytesIO()
         img.convert("RGB").save(buf, format="PNG")
         return buf.getvalue()
-    except: return None
+    except Exception as e: return None
 
 def create_wordcloud_summary(text):
     try:
@@ -325,7 +366,7 @@ def create_wordcloud_summary(text):
 # [6. 메인 UI 및 워크플로우 렌더링]
 # ==========================================
 if check_password():
-    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V14.2 Waterfall)")
+    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V14.3 Finale)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리"])
@@ -349,17 +390,16 @@ if check_password():
                 st.warning("⚠️ 이름과 URL을 모두 입력해 주세요.")
             else:
                 with status_container:
-                    # 데이터 수집 및 분석 시작
                     brand_txt, review_txt, pot_imgs, p_name = get_data_bulldozer(main_url_input, max_pages_input)
                     res_raw = analyze_deep_usp_summarized(brand_txt, review_txt, pot_imgs, content_type_input, copy_style_input, main_url_input, p_name, user_ref_input)
                     
                     if "🚨" not in res_raw:
-                        # 기획안 표 추출
+                        # 기획안 표 추출 및 DataFrame 변환
                         plan_m = re.search(r'\[AD_PLAN_START\](.*?)\[AD_PLAN_END\]', res_raw, re.DOTALL)
                         if plan_m:
-                            st.session_state.ad_plan_text = plan_m.group(1).strip()
+                            st.session_state.ad_plan_df = parse_md_table(plan_m.group(1).strip())
                             res_raw = res_raw.replace(plan_m.group(0), "")
-                        # 이미지 URL 추출
+                        
                         img_m = re.search(r'\[SELECTED_IMAGE_URL\](.*?)\[/SELECTED_IMAGE_URL\]', res_raw, re.DOTALL)
                         if img_m:
                             st.session_state.extracted_img_url = img_m.group(1).strip()
@@ -371,20 +411,21 @@ if check_password():
                         st.session_state.extra_copies = []
                         st.session_state.final_compiled_text = ""
                         
-                        # 히스토리 저장
                         kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
                         save_to_google_sheet([kst.strftime('%Y-%m-%d %H:%M'), p_name, "CODE", main_url_input, res_raw], worker_input)
                         st.toast("✅ 분석이 성공적으로 완료되었습니다!")
 
         # ------------------------------------------
-        # 결과 화면 구성 (기존 기능 100% 유지)
+        # 결과 화면 구성
         # ------------------------------------------
         if st.session_state.analyzed:
             st.markdown("---")
             st.markdown("### 📝 1. 핵심 USP & 후킹 카피 (5포인트 분석)")
             st.markdown(st.session_state.main_report_text)
 
-            st.markdown("<br>### 💡 2. 카피라이팅 추가 추출기", unsafe_allow_html=True)
+            # 🔥 UI 재배치: 3번 후킹카피 바로 뒤에 추가 추출기 노출
+            st.markdown("<br>### 💡카피라이팅 추가 추출기", unsafe_allow_html=True)
+            st.info("메인 분석 결과를 바탕으로, 마케터의 의도를 담은 카피를 무제한으로 추가 적재할 수 있습니다.")
             col_ex1, col_ex2 = st.columns([4, 1])
             with col_ex1: ex_req = st.text_input("원하는 소구점/무드를 입력하면 8개를 더 뽑아줍니다.")
             with col_ex2:
@@ -392,20 +433,30 @@ if check_password():
                 if st.button("➕ 8개 추가", use_container_width=True):
                     if ex_req:
                         with st.spinner("AI가 마케터의 의도를 반영하는 중..."):
-                            new_c = generate_extra_copies(st.session_state.main_report_text, ex_req, copy_style_input, user_ref_input)
+                            new_c = generate_extra_copies(st.session_state.main_report_text, ex_req, copy_style_input, st.session_state.user_ref_copy)
                             st.session_state.extra_copies.append({"req": ex_req, "res": new_c})
             
             for ex in st.session_state.extra_copies:
                 with st.expander(f"💬 추가 추출 (요청: {ex['req']})", expanded=True):
                     st.markdown(ex['res'])
 
-            st.markdown("<br>### 📋 3. 광고 소재 기획안 수정 (표 형식 유지)", unsafe_allow_html=True)
-            if "이미지" in content_type_input:
-                # 🔥 기획안 편집창: 표의 Markdown 형식을 그대로 유지한 채 편집
-                st.session_state.ad_plan_text = st.text_area("아래 표 내용을 수정하세요. (표의 '||' 구분선은 유지해 주세요)", st.session_state.ad_plan_text, height=250)
-                st.markdown(st.session_state.ad_plan_text) # 수정된 표 실시간 미리보기
-                
-                st.markdown("<br>### 🖼️ 4. 광고 시안 제작 (선택)", unsafe_allow_html=True)
+            # ------------------------------------------
+            # [광고 시안 및 기획안 데이터 영역]
+            # ------------------------------------------
+            st.markdown("---")
+            st.markdown("## [광고 시안 및 기획안 데이터]")
+            
+            st.markdown("<br>### 📋 1. 광고 소재 기획안 수정 (표 형식 유지)", unsafe_allow_html=True)
+            if "이미지" in st.session_state.content_type:
+                # 🔥 기획안 편집창: 엑셀처럼 칸을 직접 더블클릭하여 수정 가능!
+                st.caption("👇 아래 표의 '내용' 칸을 직접 클릭하여 자유롭게 수정하세요.")
+                if st.session_state.ad_plan_df is not None:
+                    st.session_state.ad_plan_df = st.data_editor(st.session_state.ad_plan_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("기획안 타겟이 'USP만 추출'로 설정되어 생략되었습니다.")
+
+            st.markdown("<br>### 🖼️ 2. 광고 시안 제작 (선택)", unsafe_allow_html=True)
+            if "이미지" in st.session_state.content_type:
                 col_ad1, col_ad2 = st.columns(2)
                 with col_ad1:
                     ad_mode = st.radio("시안 제작 방식 선택", ["🤖 AI 추천 이미지", "📁 직접 사진 업로드"])
@@ -414,13 +465,14 @@ if check_password():
                     u_f = st.file_uploader("사진 파일 (직접 업로드 시)") if ad_mode == "📁 직접 사진 업로드" else None
                     if st.button("🖼️ 이미지 시안 생성"):
                         src = u_f if ad_mode == "📁 직접 사진 업로드" else st.session_state.extracted_img_url
-                        st.session_state.ad_img = create_ad_image(src, m_c, s_c, is_file=(ad_mode=="📁 직접 사진 업로드"))
+                        if not src or src == "None": st.warning("AI가 추천 이미지를 찾지 못했습니다. 직접 업로드 방식을 사용해주세요.")
+                        else: st.session_state.ad_img = create_ad_image(src, m_c, s_c, is_file=(ad_mode=="📁 직접 사진 업로드"))
                 with col_ad2:
                     if st.session_state.ad_img:
                         st.image(st.session_state.ad_img, caption="결과 미리보기 (1/4 축소)", width=300)
                         st.download_button("💾 시안 다운로드", data=st.session_state.ad_img, file_name="XEXY_AD_SAMPLE.png")
 
-            st.markdown("<br>### ✅ 5. 최종 결과물 취합 및 복사", unsafe_allow_html=True)
+            st.markdown("<br>### ✅ 3. 최종 결과물 취합 및 복사", unsafe_allow_html=True)
             if st.session_state.wc_img:
                 with st.expander("☁️ (참고) 리뷰 키워드 워드클라우드"): st.image(st.session_state.wc_img)
             
@@ -428,9 +480,10 @@ if check_password():
                 final = f"분석 상품: {main_url_input}\n\n[1. 메인 USP 분석]\n{st.session_state.main_report_text}\n\n"
                 if st.session_state.extra_copies:
                     final += "[2. 추가 카피 적재 내역]\n"
-                    for ex in st.session_state.extra_copies: final += f"▶요청: {ex['req']}\n{ex['res']}\n"
-                if "이미지" in content_type_input:
-                    final += f"\n[3. 최종 수정된 기획안]\n{st.session_state.ad_plan_text}"
+                    for ex in st.session_state.extra_copies: final += f"▶요청: {ex['req']}\n{ex['res']}\n\n"
+                if "이미지" in st.session_state.content_type and st.session_state.ad_plan_df is not None:
+                    # 데이터 프레임을 다시 마크다운 표로 변환하여 복사본에 추가
+                    final += f"\n[3. 최종 수정된 기획안]\n{df_to_md_table(st.session_state.ad_plan_df)}"
                 st.session_state.final_compiled_text = final
             
             if st.session_state.final_compiled_text:
@@ -445,4 +498,4 @@ if check_password():
             if sel_ws:
                 st.dataframe(ss.worksheet(sel_ws).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>Internal Marketing Tool V14.2 (Waterfall Sequential Engine)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>Internal Marketing Tool V14.3 (Waterfall & Table Editor)</center>", unsafe_allow_html=True)
