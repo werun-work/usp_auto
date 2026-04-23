@@ -1,4 +1,4 @@
-# [버전 정보: V16.4 / 업데이트 일자: 2024-04-24]
+# [버전 정보: V16.5 / 업데이트 일자: 2024-04-24]
 import streamlit as st
 import time
 import requests
@@ -28,7 +28,7 @@ import pandas as pd
 # ==========================================
 # [1. 초기 세팅 및 세션 관리]
 # ==========================================
-st.set_page_config(page_title="AI USP 추출 솔루션", page_icon=":dart:", layout="wide")
+st.set_page_config(page_title="마케팅 USP & 카피 자동 추출 솔루션", page_icon=":dart:", layout="wide")
 
 st.markdown("""
     <style>
@@ -358,13 +358,13 @@ def generate_compare_copy(base_report, cmp_style):
     return "🚨 추출 실패"
 
 # ==========================================
-# [5. 이미지 합성 (업로드 파일 전용, 필터 제거, 자동 폰트, CTA 추가)] 
+# [5. 이미지 합성 (순수 업로드 지원)] 
 # ==========================================
 def create_ad_image(img_file, main_copy, sub_copy, cta_copy):
-    if not img_file: return None
+    if img_file is None: return None
     try:
-        img_bytes = img_file.getvalue()
-        img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+        # 안전한 파일 열기 방식으로 에러 원천 차단
+        img = Image.open(img_file).convert("RGBA")
         
         base_w = 1080
         h_size = int((float(img.size[1]) * (base_w / float(img.size[0]))))
@@ -478,7 +478,7 @@ def create_wordcloud_summary(text):
 # [6. 메인 UI 렌더링]
 # ==========================================
 if check_password():
-    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V16.4 Finale)")
+    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V16.5 Finale)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리"])
@@ -522,7 +522,6 @@ if check_password():
                     
                     brand_txt, review_txt, pot_imgs, p_name = get_data_bulldozer(main_url_input, max_pages_input)
                     
-                    # 🔥 제품명에서 젝시믹스 텍스트 원천 제거
                     p_name = p_name.replace("젝시믹스 - ", "").replace("젝시믹스-", "").strip()
                     st.session_state.product_name = p_name
                     
@@ -637,7 +636,6 @@ if check_password():
                 with col_ad1:
                     def_m, def_s, def_cta = "메인 카피 입력", "서브 카피 입력", "구매하기 >"
                     
-                    # 🔥 추출된 기획안에서 메인, 서브, CTA를 가져와 디폴트 세팅
                     if st.session_state.ad_plan_df is not None:
                         copy_row = st.session_state.ad_plan_df[st.session_state.ad_plan_df["구분"].str.contains("카피", na=False)]
                         if not copy_row.empty:
@@ -716,4 +714,4 @@ if check_password():
             if sel_ws:
                 st.dataframe(ss.worksheet(sel_ws).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>Internal Marketing Tool V16.4 (Perfectly Restored & Upgraded)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>Internal Marketing Tool V16.5</center>", unsafe_allow_html=True)
