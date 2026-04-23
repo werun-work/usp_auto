@@ -139,7 +139,7 @@ def save_to_google_sheet(data_list, worker_name):
 # ==========================================
 # [3. 데이터 수집 엔진 (Selenium)]
 # ==========================================
-def get_data_bulldozer(target_url, max_pages=1):
+def get_data_bulldozer(target_url, max_pages=10):
     brand_text, review_list, pot_imgs, p_name = "", [], [], "상품명 수집 불가"
     options = Options()
     options.binary_location = "/usr/bin/chromium" 
@@ -188,22 +188,22 @@ def get_data_bulldozer(target_url, max_pages=1):
     return brand_text, "\n".join(review_list)[:30000], pot_imgs, p_name 
 
 # ==========================================
-# [4. AI 분석 엔진] 🔥 안다르/젝시믹스 톤앤매너 & 1만원대 강제
+# [4. AI 분석 엔진] 🔥 모호한 카피 금지, 안다르 톤 반영, 1만원대 강제
 # ==========================================
 def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type, copy_style, product_url, product_name, user_ref_copy):
     
-    # 🔥 공통 지시사항: 안다르 톤앤매너, 모호한 표현 금지, 1만원대 표현 강제
+    # 공통 지시사항
     copy_quality_rule = """
     [카피 작성 절대 규칙]
-    - 안다르(andar)와 젝시믹스(XEXYMIX)의 실제 베스트 광고 카피처럼 트렌디하고 세련된 톤앤매너를 반드시 반영하세요.
+    - 안다르(andar)와 젝시믹스(XEXYMIX)의 베스트 카피처럼 트렌디하고 세련된 톤앤매너를 반드시 반영하세요.
     - '이 가격?', '세트 가격', '득템 기회', '역대급' 등 추상적이고 모호한 표현은 절대 금지합니다.
-    - '2장에 29,900원' 등 정확한 금액을 쓰지 마세요. 대신 '1만원대'와 같이 체감가를 확 낮춰주는 범용적인 표현을 사용하세요.
+    - '2장에 29,900원' 등 구체적인 금액 명시 대신, '1만원대'와 같이 체감가를 확 낮춰주는 범용적인 표현을 사용하세요.
     - 모든 줄바꿈이 필요한 곳에는 <br> 대신 / 기호를 사용하세요.
     """
 
     if "명사/동사" in copy_style:
         ui_display_text = "*카피 텍스트 기준 '공백 포함 20자 이내 추출'*"
-        ai_instruction = f"{copy_quality_rule}\n대괄호 [유형] 부분을 제외한 실제 카피 텍스트는 공백 포함 20자 이내로 하되, '~하다', '~되다', '~없다' 같은 딱딱한 서술어는 절대 금지! '상쾌함 계속', '땀 냄새 걱정 NO', '믿고 구매' 처럼 세련된 명사나 짧은 단답형으로 임팩트 있게 종결할 것."
+        ai_instruction = f"{copy_quality_rule}\n대괄호 [유형] 부분을 제외한 실제 카피 텍스트는 공백 포함 20자 이내로 하되, '~없다', '~되다' 등 딱딱한 서술어는 절대 금지합니다. '상쾌함 계속', '땀 냄새 걱정 NO', '믿고 구매' 처럼 세련된 명사나 짧은 단답형으로 임팩트 있게 종결할 것."
     elif "세일즈" in copy_style:
         ui_display_text = "*카피 텍스트 기준 '공백 포함 25자 이내 추출'*"
         ai_instruction = f"{copy_quality_rule}\n대괄호 [유형] 부분을 제외한 실제 카피 텍스트는 공백 포함 25자 이내로 하되, 혜택/할인을 강조하는 세일즈 후킹형으로 작성. (8개 중 최소 1개는 반드시 [가격 소구형]으로 작성할 것)"
@@ -260,7 +260,7 @@ def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type,
     | 광고 지면 | GFA 피드, 메인, 카카오 모먼트 등 |
     | 제품명 | {product_name} |
     | URL | {product_url} |
-    | 광고 카피 | (가장 좋은 메인 카피 / 서브 카피 2줄 추천) |
+    | 광고 카피 | (가장 좋은 메인 카피 / 서브 카피 2줄. 줄바꿈은 / 기호 사용) |
     | CTA | {product_name} 구매하기 > |
     | 제작 설명 | (디자인 지시사항) |
     [AD_PLAN_END]
@@ -279,10 +279,17 @@ def analyze_deep_usp_summarized(brand_text, review_text, pot_imgs, content_type,
     return "🚨 서버 폭주. 다시 시도해 주세요.", None
 
 # ==========================================
-# [추가/비교 카피 엔진] 🔥 안다르 톤 & 1만원대 강제 적용
+# [추가/비교 카피 엔진] 
 # ==========================================
 def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
-    rule = "공백 포함 25자 이내, 안다르/젝시믹스 톤앤매너, '1만원대' 등 체감가를 낮추는 표현 사용 (이 가격? 득템 등 모호한 표현 절대 금지), 줄바꿈은 / 기호 사용"
+    rule = "안다르/젝시믹스 톤앤매너, 모호한 표현(이 가격? 득템 등) 절대 금지, '1만원대' 등 체감가 낮추는 표현 사용, 줄바꿈은 / 기호 사용."
+    if "명사/동사" in copy_style:
+        rule += " 대괄호 제외 순수 카피 공백 포함 20자 이내. '~하다,~되다,~없다' 등 딱딱한 서술어 금지, '상쾌함 계속, 냄새 NO' 처럼 임팩트 있는 명사/단답형 종결."
+    elif "세일즈" in copy_style:
+        rule += " 대괄호 제외 순수 카피 공백 포함 25자 이내. 세일즈 후킹형 (최소 1개 [가격 소구형] 포함)."
+    else:
+        rule += " 대괄호 제외 순수 카피 공백 포함 25자 이내. 자연스러운 서술형."
+        
     prompt = f"당신은 카피라이터입니다. 서론 없이 깔끔하게 새 카피 8줄만 출력하세요.\n기존분석: {base_report[:1500]}\n요청: {user_req}\n규칙: {rule}"
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
     for attempt in range(5):
@@ -291,10 +298,13 @@ def generate_extra_copies(base_report, user_req, copy_style, user_ref_copy):
     return "🚨 추출 실패"
 
 def generate_compare_copy(base_report, cmp_style):
+    rule = "안다르/젝시믹스 톤앤매너, 대괄호 뒤 '카피' 단어 사용 금지, 모호한 표현 금지, '1만원대' 체감가 표현 사용, 줄바꿈은 / 기호 사용."
     if "명사/동사" in cmp_style:
-        rule = "공백 포함 20자 이내, 대괄호 뒤 '카피' 단어 사용 금지, '~없다, ~되다' 등 딱딱한 어미 금지 (예: 상쾌함 계속, 냄새 NO), '1만원대' 표현 사용, 줄바꿈은 / 기호 사용"
+        rule += " 공백 포함 20자 이내, 딱딱한 서술어 금지, '상쾌함 계속' 같은 세련된 명사 단답형 종결."
+    elif "세일즈" in cmp_style:
+        rule += " 공백 포함 25자 이내, 세일즈 후킹형 (최소 1개 [가격 소구형] 포함)."
     else:
-        rule = "공백 포함 25자 이내, 대괄호 뒤 '카피' 단어 사용 금지, 안다르/젝시믹스 톤앤매너, '1만원대' 표현 사용, 추상적 표현 금지, 줄바꿈은 / 기호 사용"
+        rule += " 공백 포함 25자 이내, 자연스러운 서술형."
         
     prompt = f"서론 없이 리스트만 출력하세요. '{cmp_style}' 스타일로 8개 도출.\n분석내용: {base_report[:1500]}\n규칙: {rule}"
     client = genai.Client(api_key=MY_GEMINI_API_KEY)
@@ -304,7 +314,7 @@ def generate_compare_copy(base_report, cmp_style):
     return "🚨 추출 실패"
 
 # ==========================================
-# [5. 이미지 합성 엔진] 🔥 폰트 404 에러 완벽 해결본 (Raw URL)
+# [5. 이미지 합성 엔진] 🔥 폰트 에러 완벽 해결
 # ==========================================
 def create_ad_image(img_file, main_copy, sub_copy):
     if not img_file: return None
@@ -322,7 +332,7 @@ def create_ad_image(img_file, main_copy, sub_copy):
         img = Image.alpha_composite(img, overlay)
         draw = ImageDraw.Draw(img)
         
-        # 🔥 404 에러의 주범이었던 폰트 다운로드 URL 완벽 픽스 (정확한 Raw 주소)
+        # 🔥 404 에러 주범인 폰트 URL을 Github Raw 주소로 완벽 교체
         f_b, f_r = "NanumGothicBold.ttf", "NanumGothic.ttf"
         font_urls = {
             f_b: "https://raw.githubusercontent.com/google/fonts/main/ofl/nanumgothic/NanumGothic-Bold.ttf",
@@ -330,11 +340,9 @@ def create_ad_image(img_file, main_copy, sub_copy):
         }
         for f_name, url in font_urls.items():
             if not os.path.exists(f_name):
-                try:
-                    urllib.request.urlretrieve(url, f_name)
-                except Exception as e:
-                    return f"ERROR: 폰트 다운로드 실패 ({str(e)})"
-                    
+                try: urllib.request.urlretrieve(url, f_name)
+                except Exception as e: return f"ERROR: 폰트 다운로드 실패 ({str(e)})"
+                
         font_m = ImageFont.truetype(f_b, 82); font_s = ImageFont.truetype(f_r, 52); font_l = ImageFont.truetype(f_b, 35)
         draw.text((50, 50), "X E X Y M I X", font=font_l, fill=(255,255,255,255))
         def draw_c(text, font, y):
@@ -349,11 +357,22 @@ def create_ad_image(img_file, main_copy, sub_copy):
     except Exception as e: 
         return f"ERROR: {str(e)}"
 
+def create_wordcloud_summary(text):
+    try:
+        client = genai.Client(api_key=MY_GEMINI_API_KEY)
+        kw = client.models.generate_content(model='gemini-3.1-flash', contents=f"마케팅 핵심 키워드 50개 추출(콤마구분): {text[:5000]}").text
+        wc = WordCloud(font_path="NanumGothic.ttf", width=600, height=400, background_color='white', colormap='tab10').generate(kw)
+        buf = io.BytesIO()
+        plt.figure(figsize=(6, 4)); plt.imshow(wc); plt.axis('off'); plt.tight_layout(pad=0)
+        plt.savefig(buf, format='png', bbox_inches='tight', dpi=150); plt.close()
+        return buf.getvalue()
+    except: return None
+
 # ==========================================
 # [6. 메인 화면 렌더링]
 # ==========================================
 if check_password():
-    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V16.0 Master)")
+    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V16.1 Master)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리"])
@@ -407,6 +426,11 @@ if check_password():
                         if "이미지" in content_type_input and st.session_state.ad_plan_df is None:
                             st.session_state.ad_plan_df = create_default_ad_plan(p_name, main_url_input)
                         
+                        res_raw = re.sub(r'\*\(AI 내부 지시사항.*?\)\*', '', res_raw, flags=re.DOTALL)
+                        img_m = re.search(r'\[SELECTED_IMAGE_URL\](.*?)\[/SELECTED_IMAGE_URL\]', res_raw, re.DOTALL)
+                        if img_m:
+                            res_raw = res_raw.replace(img_m.group(0), "").replace("[SELECTED_IMAGE_URL]", "").replace("[/SELECTED_IMAGE_URL]", "")
+
                         st.session_state.main_report_text = res_raw.strip()
                         st.session_state.analyzed = True
                         st.session_state.extra_copies = []
@@ -461,7 +485,6 @@ if check_password():
                 st.markdown("<br>### 🖼️ 2. 광고 시안 제작 (선택)", unsafe_allow_html=True)
                 col_ad1, col_ad2 = st.columns(2)
                 with col_ad1:
-                    # 🔥 기획안 표에서 메인/서브 카피 가져와서 자동 세팅
                     def_m, def_s = "메인 카피 입력", "서브 카피 입력"
                     if st.session_state.ad_plan_df is not None:
                         copy_row = st.session_state.ad_plan_df[st.session_state.ad_plan_df["구분"].str.contains("카피", na=False)]
@@ -475,18 +498,14 @@ if check_password():
                     m_c = st.text_input("합성할 메인 카피", value=def_m)
                     s_c = st.text_input("합성할 서브 카피", value=def_s)
                     
-                    st.info("💡 **[가장 쉬운 업로드 팁]**\n스트림릿 보안 구조상 Ctrl+V가 막히는 경우가 많습니다.\n가급적 이미지를 **바탕화면에 캡처/저장 후 [Upload] 버튼을 눌러 파일을 직접 첨부**해주시는 것이 가장 확실합니다!")
+                    st.info("💡 **[업로드 팁] 웹페이지 빈 곳(하얀 바탕)을 마우스로 클릭 후 `Ctrl+V` 하시면 캡처 이미지가 들어갑니다!**")
                     u_f = st.file_uploader("이미지 업로드 영역", label_visibility="collapsed", type=["jpg", "jpeg", "png"])
                     if st.button("🖼️ 이미지 시안 생성"):
                         with st.spinner("⏳ 합성 중..."):
                             res = create_ad_image(u_f, m_c, s_c)
-                            if isinstance(res, str) and res.startswith("ERROR:"):
-                                st.error(f"합성 실패! 원인: {res}")
-                            elif res: 
-                                st.session_state.ad_img = res
-                                st.success("생성 완료!")
-                            else: 
-                                st.error("이미지 파일을 업로드해주세요.")
+                            if isinstance(res, str) and res.startswith("ERROR:"): st.error(f"합성 실패! 원인: {res}")
+                            elif res: st.session_state.ad_img = res; st.success("생성 완료!")
+                            else: st.error("이미지 파일을 업로드해주세요.")
                 with col_ad2:
                     if st.session_state.ad_img:
                         st.image(st.session_state.ad_img, width=300)
@@ -509,4 +528,4 @@ if check_password():
             if st.session_state.final_compiled_text:
                 st.text_area("📋 전체 복사 (Ctrl+A -> Ctrl+C)", st.session_state.final_compiled_text, height=350)
 
-    st.markdown("<br><center>Internal Marketing Tool V16.0 (Perfect Font & Copy Fixes)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>Internal Marketing Tool V16.1 (Full Unabridged Resolution)</center>", unsafe_allow_html=True)
