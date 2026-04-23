@@ -1,3 +1,4 @@
+# [버전 정보: V16.4 / 업데이트 일자: 2024-04-24]
 import streamlit as st
 import time
 import requests
@@ -357,9 +358,9 @@ def generate_compare_copy(base_report, cmp_style):
     return "🚨 추출 실패"
 
 # ==========================================
-# [5. 이미지 합성 (업로드 파일 전용)] 🔥 폰트 404 다운로드 에러 완벽 해결
+# [5. 이미지 합성 (업로드 파일 전용, 필터 제거, 자동 폰트, CTA 추가)] 
 # ==========================================
-def create_ad_image(img_file, main_copy, sub_copy):
+def create_ad_image(img_file, main_copy, sub_copy, cta_copy):
     if not img_file: return None
     try:
         img_bytes = img_file.getvalue()
@@ -369,17 +370,8 @@ def create_ad_image(img_file, main_copy, sub_copy):
         h_size = int((float(img.size[1]) * (base_w / float(img.size[0]))))
         img = img.resize((base_w, h_size), Image.Resampling.LANCZOS)
         
-        overlay = Image.new('RGBA', img.size, (0,0,0,0))
-        draw = ImageDraw.Draw(overlay)
-        box_top = int(h_size * 0.40)
-        for y in range(box_top, h_size):
-            alpha = int(242 * (((y - box_top) / (h_size - box_top)) ** 0.45)) 
-            draw.line([(0, y), (base_w, y)], fill=(0, 0, 0, alpha))
-        
-        img = Image.alpha_composite(img, overlay)
         draw = ImageDraw.Draw(img)
 
-        # 🔥 404 에러를 유발하던 폰트 경로를 가장 안정적인 네이버 공식 폰트 웹서버로 교체
         f_b, f_r = "NanumGothicBold.ttf", "NanumGothic.ttf"
         font_urls = {
             f_b: "https://hangeul.pstatic.net/hangeul_static/webfont/NanumGothic/NanumGothicBold.ttf",
@@ -388,24 +380,83 @@ def create_ad_image(img_file, main_copy, sub_copy):
         for f_name, url in font_urls.items():
             if not os.path.exists(f_name):
                 try: 
-                    # 봇 차단(403/404) 방지를 위한 헤더 적용
                     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                     with urllib.request.urlopen(req) as response, open(f_name, 'wb') as out_file:
                         out_file.write(response.read())
                 except Exception as e: 
                     return f"ERROR: 폰트 다운로드 실패 ({str(e)})"
         
-        font_m = ImageFont.truetype(f_b, 82); font_s = ImageFont.truetype(f_r, 52); font_l = ImageFont.truetype(f_b, 35)
+        # 폰트가 잘리지 않도록 텍스트 길이에 맞춰 사이즈 자동 조절 함수
+        def get_fitted_font(text, font_path, max_size, max_width):
+            size = max_size
+            font = ImageFont.truetype(font_path, size)
+            while size > 20:
+                bbox = draw.textbbox((0, 0), text, font=font)
+                if bbox[2] - bbox[0] <= max_width:
+                    break
+                size -= 2
+                font = ImageFont.truetype(font_path, size)
+            return font
 
-        draw.text((50, 50), "X E X Y M I X", font=font_l, fill=(255,255,255,255))
+        font_l = ImageFont.truetype(f_b, 35)
+        # 로고 표시 (어떤 배경에서든 보이도록 검정 테두리 효과 추가)
+        draw.text((50, 50), "X E X Y M I X", font=font_l, fill=(255,255,255,255), stroke_width=2, stroke_fill=(0,0,0,150))
+
+        # 메인 및 서브 카피 폰트 피팅 (좌우 여백 80픽셀 기준)
+        font_m = get_fitted_font(main_copy, f_b, 82, base_w - 80)
+        font_s = get_fitted_font(sub_copy, f_r, 52, base_w - 80)
+
+        # 필터 없이 카피가 잘 보이도록 그림자(Stroke) 처리 함수
         def draw_c(text, font, y):
-            x = (base_w - draw.textbbox((0,0), text, font=font)[2]) / 2
-            draw.text((x, y), text, font=font, fill=(255,255,255,255))
+            bbox = draw.textbbox((0,0), text, font=font)
+            x = (base_w - (bbox[2] - bbox[0])) / 2
+            draw.text((x, y), text, font=font, fill=(255,255,255,255), stroke_width=3, stroke_fill=(0,0,0,150))
+            return bbox[3] - bbox[1]
 
         start_y = int(h_size * 0.65)
-        draw_c(sub_copy, font_s, start_y)
-        draw_c(main_copy, font_m, start_y + 90)
+        h_s = draw_c(sub_copy, font_s, start_y)
+        h_m = draw_c(main_copy, font_m, start_y + h_s + 20)
         
+        # CTA 박스 추가 로직
+        if cta_copy:
+            cta_copy = cta_copy.replace("젝시믹스 -", "").replace("젝시믹스-", "").strip()
+            
+            # 하단 영역 이미지 색상을 분석하여 대비되는 박스 컬러 자동 결정
+            from PIL import ImageStat
+            crop = img.crop((0, int(h_size*0.7), base_w, h_size))
+            stat = ImageStat.Stat(crop)
+            avg_r, avg_g, avg_b = stat.mean[:3]
+            
+            # 빨강, 파랑, 초록, 검정 중 대비가 가장 큰 컬러 선정
+            colors = [(220, 20, 60), (20, 60, 220), (34, 139, 34), (30, 30, 30)]
+            max_dist = -1
+            best_color = colors[3]
+            for c in colors:
+                dist = (c[0]-avg_r)**2 + (c[1]-avg_g)**2 + (c[2]-avg_b)**2
+                if dist > max_dist:
+                    max_dist = dist
+                    best_color = c
+            
+            cta_font = get_fitted_font(cta_copy, f_b, 40, base_w - 150)
+            cta_bbox = draw.textbbox((0,0), cta_copy, font=cta_font)
+            cta_w = cta_bbox[2] - cta_bbox[0]
+            cta_h = cta_bbox[3] - cta_bbox[1]
+            
+            box_w = cta_w + 80
+            box_h = cta_h + 40
+            box_x = (base_w - box_w) / 2
+            box_y = start_y + h_s + 20 + h_m + 50
+            
+            # 박스가 하단을 넘어가면 위로 올리기
+            if box_y + box_h > h_size - 20:
+                box_y = h_size - box_h - 20
+                
+            draw.rounded_rectangle([box_x, box_y, box_x + box_w, box_y + box_h], radius=15, fill=best_color)
+            
+            tx = box_x + (box_w - cta_w) / 2
+            ty = box_y + (box_h - cta_h) / 2 - 5
+            draw.text((tx, ty), cta_copy, font=cta_font, fill=(255,255,255,255))
+
         buf = io.BytesIO()
         img.convert("RGB").save(buf, format="PNG")
         return buf.getvalue()
@@ -427,7 +478,7 @@ def create_wordcloud_summary(text):
 # [6. 메인 UI 렌더링]
 # ==========================================
 if check_password():
-    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V16.2 Finale)")
+    st.title("🎯 마케팅 USP & 카피 자동 추출기 (V16.4 Finale)")
     st.markdown("---")
 
     tab1, tab2 = st.tabs(["🎯 새 분석 실행", "📜 히스토리"])
@@ -470,6 +521,9 @@ if check_password():
                     st.session_state.p_code = qs.get('branduid', qs.get('product_no', ['UNKNOWN']))[0]
                     
                     brand_txt, review_txt, pot_imgs, p_name = get_data_bulldozer(main_url_input, max_pages_input)
+                    
+                    # 🔥 제품명에서 젝시믹스 텍스트 원천 제거
+                    p_name = p_name.replace("젝시믹스 - ", "").replace("젝시믹스-", "").strip()
                     st.session_state.product_name = p_name
                     
                     res_raw, model_used = analyze_deep_usp_summarized(brand_txt, review_txt, pot_imgs, content_type_input, copy_style_input, main_url_input, p_name, user_ref_input)
@@ -563,7 +617,7 @@ if check_password():
                     with st.expander(f"💬 추가 추출 #{idx+1} (요청: {ex['req']})", expanded=True):
                         st.markdown(ex['res'])
 
-            # 기획안 영역
+            # 기획안 영역 
             if "이미지" in st.session_state.content_type:
                 st.markdown("<br>### 📋 1. 광고 소재 기획안 수정 (표 형식 유지)", unsafe_allow_html=True)
                 with st.form("ad_plan_form"):
@@ -581,8 +635,9 @@ if check_password():
                 st.markdown("<br>### 🖼️ 2. 광고 시안 제작 (선택)", unsafe_allow_html=True)
                 col_ad1, col_ad2 = st.columns(2)
                 with col_ad1:
-                    # 🔥 기획안 표에서 카피를 가져와 디폴트값으로 세팅
-                    def_m, def_s = "메인 카피 입력", "서브 카피 입력"
+                    def_m, def_s, def_cta = "메인 카피 입력", "서브 카피 입력", "구매하기 >"
+                    
+                    # 🔥 추출된 기획안에서 메인, 서브, CTA를 가져와 디폴트 세팅
                     if st.session_state.ad_plan_df is not None:
                         copy_row = st.session_state.ad_plan_df[st.session_state.ad_plan_df["구분"].str.contains("카피", na=False)]
                         if not copy_row.empty:
@@ -594,21 +649,25 @@ if check_password():
                                 parts = full_copy.split("<br>", 1)
                                 def_m, def_s = parts[0].strip(), parts[1].strip()
                             else: def_m = full_copy.strip()
+                            
+                        cta_row = st.session_state.ad_plan_df[st.session_state.ad_plan_df["구분"].str.contains("CTA", na=False)]
+                        if not cta_row.empty:
+                            def_cta = cta_row.iloc[0]["내용"].replace("젝시믹스 -", "").replace("젝시믹스-", "").strip()
 
                     m_c = st.text_input("합성할 메인 카피", value=def_m)
                     s_c = st.text_input("합성할 서브 카피", value=def_s)
+                    c_c = st.text_input("합성할 CTA 카피", value=def_cta)
                     
                     st.markdown("**🖼️ 상품 이미지 업로드**")
-                    # 🔥 혼란을 주던 Ctrl+V 안내 제거 후 깔끔한 업로드 안내로 변경
                     st.caption("👇 **[Upload] 버튼을 클릭하여 시안 배경으로 사용할 상품 이미지를 직접 첨부해 주세요.**")
                     u_f = st.file_uploader("이미지 업로드 영역", label_visibility="collapsed", type=["jpg", "jpeg", "png"])
                     
                     if st.button("🖼️ 이미지 시안 생성"):
                         with st.spinner("⏳ 이미지 시안을 합성하는 중입니다... 잠시만 기다려주세요."):
                             if not u_f: 
-                                st.warning("이미지를 업로드 해주세요.")
+                                st.warning("이미지를 먼저 업로드 해주세요.")
                             else: 
-                                img_res = create_ad_image(u_f, m_c, s_c)
+                                img_res = create_ad_image(u_f, m_c, s_c, c_c)
                                 if isinstance(img_res, str) and img_res.startswith("ERROR:"):
                                     st.error(f"이미지 처리 중 오류가 발생했습니다: {img_res}")
                                 elif img_res: 
@@ -657,4 +716,4 @@ if check_password():
             if sel_ws:
                 st.dataframe(ss.worksheet(sel_ws).get_all_records(), use_container_width=True)
 
-    st.markdown("<br><center>Internal Marketing Tool V16.2 (Fully Restored & Fine-Tuned)</center>", unsafe_allow_html=True)
+    st.markdown("<br><center>Internal Marketing Tool V16.4 (Perfectly Restored & Upgraded)</center>", unsafe_allow_html=True)
